@@ -34,3 +34,32 @@ updates:
     labels:
       - dependencies
       - composer
+
+  # Vitest tooling for the SCORM tracker's JavaScript unit tests.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Madrid
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+      include: scope
+    labels:
+      - dependencies
+      - javascript
+    groups:
+      # vitest and its @vitest/* companions peer-pin each other to the exact same
+      # version, so bumping one alone makes `npm ci` fail with ERESOLVE (see the
+      # split bump that broke CI). Keep them in a single PR for both update kinds.
+      vitest:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+      vitest-security:
+        applies-to: security-updates
+        patterns:
+          - "vitest"
+          - "@vitest/*"
