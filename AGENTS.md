@@ -29,9 +29,8 @@ supported version to follow an external example.
 - Behavior changes include regression tests for the relevant happy path and edge
   cases: PHPUnit for PHP, Vitest for the tracker. Use `verify-change` to select checks;
   documentation alone does not require new application tests.
-- Write code, comments, agent instructions, skills and PRs in English. Documentation
-  under `docs/` may remain Spanish. Preserve historical research records in their
-  original language. Use translated UI strings, with keys in `lang/en/exelearning.php`
+- Write code, comments, root agent instructions, skills, PRs and `docs/` in English.
+  `research/` uses Spanish. Use translated UI strings, with keys in `lang/en/exelearning.php`
   in strict alphabetical order; no runtime loops generating strings.
   ATE stands for Área de Tecnología Educativa.
 - PHPCS: `vendor/bin/phpcs --standard=moodle <files>` must report 0/0; do not use the
