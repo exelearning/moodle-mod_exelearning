@@ -18,9 +18,8 @@ the archive root — the proprietary manifest every v4 export contains. The uplo
 accepted as **`.elpx` OR `.zip`** (the genuine marker is `content.xml`, not the
 extension; DEC-16-01). Legacy `.elp` and `iteexe_online` are **not** supported.
 
-This is fixed by the "Restricciones inmutables" in the root `AGENTS.md:172-174`:
-*"Sólo paquete v4 ODE 2.0 (con `content.xml`), aceptado como `.elpx` o `.zip`
-(DEC-16-01). NO `.elp` legacy, NO `iteexe_online`."*
+The supported format is part of the [project rules](../AGENTS.md#reglas-del-proyecto):
+ODE 2.0 v4 with `content.xml`, accepted as `.elpx` or `.zip` (DEC-16-01).
 
 ## Validation and extraction
 
