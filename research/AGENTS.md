@@ -9,13 +9,12 @@ cumpla debe rechazarse o corregirse antes de integrarse.
 1. **Evidencia antes que preferencia.** Toda afirmación técnica cita una fuente
    verificable: `repo + ruta + commit`, doc oficial (con URL, versión y fecha de
    consulta), o un experimento reproducible. Sin fuente no hay afirmación.
-2. **Estándar de tracking (DEC-0-03 `Aceptada`, 2026-05-29).** El motor vigente es el
-   **bridge SCORM 1.2** + multi-grade-items por `objectid` (DEC-0-03/DEC-5-01), respaldado
-   por la matriz `analisis/matrices/matriz-estandar-tracking.yaml`. **xAPI** es la hoja de
-   ruta aceptada como ingesta adicional sobre la **misma** tubería (DEC-0-14/DEC-17-01 +
-   reglas de validación y versión en DEC-0-18), gated al contrato upstream `exelearning#1867`;
-   **cmi5 y LTI 1.3 AGS quedan fuera de alcance**. (La "neutralidad de estándar" del bootstrap
-   ya se resolvió; toda afirmación nueva sigue citando evidencia.)
+2. **Estándar de tracking vigente.** SCORM 1.2 es el único canal del navegador,
+   con rutas estables por `objectid` y la ingesta compartida con servicios móviles.
+   `DEC-122-01` retiró el canal xAPI y sustituyó `DEC-17-01`, `DEC-0-18` y `DEC-85-01`.
+   Consultar `../docs/tracking-architecture.md` y el código; los registros anteriores
+   se conservan como historia, no como una orden de reimplantar xAPI. LRS, cmi5 y
+   LTI 1.3 AGS siguen fuera del alcance vigente.
 3. **Separación de capas.** Hechos en `fuentes/`, interpretaciones en `analisis/`,
    decisiones en `decisiones/`. No mezclar. Una nota AN no decide; un ADR decide.
 4. **Trazabilidad.** Cada `TAREA` enlaza ≥1 fuente/análisis/pregunta. Cada `DEC` cita

@@ -18,7 +18,8 @@ exelearning/
 
 # Tooling state
 .omc/
-.claude/
+.claude/*
+!.claude/skills/
 
 # Release artifacts
 mod_exelearning-*.zip
