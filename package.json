@@ -9,8 +9,8 @@
     "test:js:coverage": "vitest run --coverage"
   },
   "devDependencies": {
-    "@vitest/coverage-v8": "^4.1.8",
+    "@vitest/coverage-v8": "^5.0.0",
     "happy-dom": "^20.10.2",
-    "vitest": "^4.1.8"
+    "vitest": "^5.0.0"
   }
 }
