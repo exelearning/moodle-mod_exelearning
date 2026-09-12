@@ -1,30 +1,31 @@
 ---
 name: elpx-package
-description: Modificar parsing de content.xml, extracción, reemplazo o servido de paquetes ELPX del plugin Moodle.
+description: Change content.xml parsing, extraction, replacement or serving of ELPX packages in the Moodle plugin.
 ---
 
-# Paquetes ELPX
+# ELPX packages
 
-Leer `docs/ELPX_PACKAGE.md`; contrastar con `classes/local/package.php`,
-`package_manager.php`, `zip_utils.php`, `mod_form.php` y los callers de `lib.php`
-y `editor/save.php`. Archivo válido: ZIP v4 con `content.xml` raíz, sea `.elpx` o `.zip`.
+Read `docs/ELPX_PACKAGE.md`; check `classes/local/package.php`, `package_manager.php`,
+`zip_utils.php`, `mod_form.php` and callers in `lib.php` and `editor/save.php`.
+A valid archive is a v4 ZIP with root `content.xml`, whether named `.elpx` or `.zip`.
 
-- Usar el packer/File API de Moodle y las comprobaciones de rutas existentes.
-  Validar contenido real, no fiarse de extensión/MIME. No crear otro extractor.
-- La revisión nueva se guarda y valida antes de activar el puntero y podar la
-  anterior. Un fallo elimina solo lo recién preparado; preservar paquete, contenido,
-  revisión y notas previos. Reutilizar `store_and_activate_revision()` donde aplique.
-- DOM por `local-name()` conserva namespaces, CDATA y orden; mantener el fallback
-  controlado para XML malformado y las pruebas con exports reales.
-- Aceptar `DOCTYPE ... SYSTEM "content.dtd"` sin resolverlo: `LIBXML_NONET`, sin
-  `LIBXML_DTDLOAD` ni `LIBXML_NOENT`; conservar defensa frente a entidades internas.
-  No rechazar todos los DOCTYPE ni habilitar expansión para arreglar un fixture.
-- Detectar por `isScorm > 0`, DataGame cifrado y marcador GeoGebra según el parser,
-  no por la lista histórica de tipos. Preservar objectid y hash semántico que ignora
-  metadatos volátiles de exportación.
-- Servir mediante el callback/File API con contexto y acceso del área; no exponer
-  rutas del dataroot. Consultar el contrato SCORM antes de alterar inyecciones o sandbox.
+- Use Moodle's packer/File API and existing path checks. Validate actual contents,
+  not extension/MIME hints. Do not introduce another extractor.
+- Store and validate the new revision before activating its pointer and pruning the
+  previous one. Failure removes only newly staged data; preserve the previous package,
+  content, revision and grades. Reuse `store_and_activate_revision()` where applicable.
+- DOM traversal by `local-name()` preserves namespaces, CDATA and ordering; retain
+  controlled malformed-XML fallback and real-export fixtures.
+- Accept `DOCTYPE ... SYSTEM "content.dtd"` without resolving it: `LIBXML_NONET`,
+  no `LIBXML_DTDLOAD` or `LIBXML_NOENT`; retain internal-entity defenses. Do not reject
+  all DOCTYPE declarations or enable expansion to make a fixture work.
+- Detect using `isScorm > 0`, encrypted DataGame and the GeoGebra marker as implemented
+  by the parser, not the historical type list. Preserve objectid and semantic hashing
+  that ignores volatile export metadata.
+- Serve through the callback/File API with the area's context and access checks;
+  never expose dataroot paths. Consult the SCORM contract before changing injection
+  or sandbox behavior.
 
-Elegir tests de `package_test.php`, `package_legacy_test.php`, `zip_utils_test.php`,
-`lib_extract_test.php`, `local/package_manager*_test.php` y regresiones de notas
-cuando cambie detección/sync. Incluir fallo de reemplazo que conserva el estado anterior.
+Select tests from `package_test.php`, `package_legacy_test.php`, `zip_utils_test.php`,
+`lib_extract_test.php`, `local/package_manager*_test.php`, plus grade regressions
+when detection/sync changes. Include failed replacement preserving previous state.

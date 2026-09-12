@@ -1,40 +1,40 @@
 ---
 name: moodle-upgrade
-description: Modificar XMLDB, upgrade.php, versiones o metadatos registrables de mod_exelearning y comprobar su ciclo de datos.
+description: Change XMLDB, upgrade.php, versions or registered metadata in mod_exelearning and verify the data lifecycle.
 ---
 
-# Upgrade de mod_exelearning
+# Upgrade mod_exelearning
 
-Leer `DEVELOPMENT.md` (Versioning and releases), `db/install.xml`, `db/upgrade.php`,
-`version.php` y `scripts/check-version.sh`. Mantener Moodle 4.5/PHP 8.1 como mínimo.
-No confundir `$plugin->requires` (compatibilidad) con `$plugin->version` (upgrade).
+Read `DEVELOPMENT.md` (Versioning and releases), `db/install.xml`, `db/upgrade.php`,
+`version.php` and `scripts/check-version.sh`. Retain Moodle 4.5/PHP 8.1 compatibility.
+Do not confuse `$plugin->requires` (compatibility) with `$plugin->version` (upgrade).
 
-- Para una modificación de esquema, mantener instalación limpia y ruta de upgrade
-  equivalentes. Usar XMLDB y el estilo de las etapas existentes, con comprobaciones
-  de existencia cuando permitan reintentar una migración parcial.
-- Añadir etapas; no borrar ni reescribir las históricas. Cada guard `$oldversion < N`
-  culmina con `upgrade_mod_savepoint(true, N, 'exelearning')` tras el trabajo correcto.
-- Elegir una versión real `YYYYMMDDXX`, mayor que la publicada y que los guards y
-  savepoints, según el comprobador local. `release` permanece `dev` salvo preparación
-  explícita de release; el packager valida y no reescribe `version.php`.
-- También requieren detección de versión los cambios cacheables enumerados en
-  DEVELOPMENT (clases, JS, strings, settings, capacidades, servicios, tareas).
-  No elevar la versión por documentación/skills exclusivamente.
+- For schema changes, keep fresh installation and upgrade results equivalent. Use
+  XMLDB and existing stage conventions, with existence checks where they allow
+  retrying a partial migration.
+- Append stages; do not delete or rewrite historical ones. Each `$oldversion < N`
+  guard ends with `upgrade_mod_savepoint(true, N, 'exelearning')` after successful work.
+- Choose a real `YYYYMMDDXX` version above the published version and all guards and
+  savepoints, following the local checker. Keep `release` as `dev` except during
+  explicit release preparation; packaging validates and never rewrites `version.php`.
+- Cacheable changes listed in DEVELOPMENT also require version detection: classes,
+  JS, strings, settings, capabilities, services and tasks. Documentation/skills alone
+  do not require a version bump.
 
-Si cambia un dato personal, tabla o filearea, seguir el dato por
-`classes/privacy/provider.php`, `backup/moodle2/`, borrado/reset de actividad y
-`docs/PRIVACY_BACKUP_FILES.md`. Declarar metadatos no implementa exportación/borrado.
-Probar los tres caminos de borrado y el recálculo de notas; backup con/sin `userinfo`,
-remapeo de usuarios y categorías, y no resucitar datos retirados. `gradesyncrev` se
-omite deliberadamente para forzar el reescaneo tras restore.
+When personal data, tables or fileareas change, trace them through
+`classes/privacy/provider.php`, `backup/moodle2/`, activity deletion/reset and
+`docs/PRIVACY_BACKUP_FILES.md`. Declaring metadata does not implement export/deletion.
+Test all three deletion paths and grade recalculation; backup with/without `userinfo`,
+user/category remapping and absence of retired data. `gradesyncrev` is deliberately
+omitted to force a rescan after restore.
 
-Para servicios: `db/services.php` registra, pero no sustituye `validate_parameters`,
-`validate_context` y permisos dentro de `execute`. `save_track` comparte la ingesta,
-no introduce un segundo motor de notas.
+For services, registration in `db/services.php` does not replace `validate_parameters`,
+`validate_context` and permissions inside `execute`. `save_track` shares ingestion
+rather than introducing another grading engine.
 
-Validar `make check-version`, `moodle-plugin-ci validate`, `moodle-plugin-ci savepoints`,
-instalación/upgrade y tests de datos afectados (`backup_restore_test.php`,
-`privacy/provider_test.php`, `external_test.php` según alcance). Reinicializar PHPUnit
-cuando cambie el esquema/versión/capacidades. Un cambio destructivo requiere alcance
-explícito, estrategia de datos y decisión documentada; no ejecutarlo en un sitio real
-por el mero hecho de preparar código de upgrade.
+Run `make check-version`, `moodle-plugin-ci validate`, `moodle-plugin-ci savepoints`,
+install/upgrade checks and affected data tests (`backup_restore_test.php`,
+`privacy/provider_test.php`, `external_test.php` as applicable). Reinitialize PHPUnit
+when schema/version/capabilities change. Destructive changes require explicit scope,
+a data strategy and a documented decision; preparing upgrade code does not authorize
+running it on a live site.

@@ -1,39 +1,39 @@
 ---
 name: gradebook-tracking
-description: Cambiar o depurar SCORM, intentos, gradebook, completion y servicios de tracking de mod_exelearning.
+description: Change or debug SCORM, attempts, gradebook, completion and tracking services in mod_exelearning.
 ---
 
-# Notas y tracking
+# Grades and tracking
 
-Seguir `view.php` / `js/scorm_tracker.js` → `track.php` /
+Trace `view.php` / `js/scorm_tracker.js` → `track.php` /
 `classes/local/tracking_endpoint.php` → `classes/local/track.php` →
-`classes/local/attempts.php` y `classes/grades/`. `classes/external/save_track.php`
-reutiliza `track::ingest()`. Leer `docs/GRADEBOOK.md` para columnas/recálculo y
-`docs/TRACKING.md` / `docs/scorm-shim-current-flow.md` para ingesta/bridge.
-`docs/tracking-architecture.md` explica la retirada de xAPI (DEC-122-01).
+`classes/local/attempts.php` and `classes/grades/`. `classes/external/save_track.php`
+reuses `track::ingest()`. Read `docs/GRADEBOOK.md` for columns/recalculation and
+`docs/TRACKING.md` / `docs/scorm-shim-current-flow.md` for ingestion/bridge behavior.
+`docs/tracking-architecture.md` explains xAPI retirement (DEC-122-01).
 
-Invariantes que deben sobrevivir:
+Preserve these invariants:
 
-- `objectid` estable → `itemnumber` estable, no índice local de página. Reaparición
-  conserva número; desaparición marca borrado sin perder historia. Tope de 100
-  columnas y strings `grade_idevice1_name`…`grade_idevice100_name` más overall.
-- `peritem` solo tiene columnas por iDevice: no crear un overall oculto/excluido
-  (modelo histórico sustituido por DEC-25-01). `overall` solo publica itemnumber 0.
-- Preview autorizado no persiste; el cliente no elige identidad ni crea grade items.
-  Filtrar `itemscores` a objectids de la instancia, limitar tamaño, normalizar y
-  acotar notas; recomputar overall con las ponderaciones del contrato actual.
-- Un `sessiontoken` agrupa commits del mismo intento; preservar lock, límite de
-  intentos y agregaciones highest/average/first/last/lowest.
-- Las filas `gradable = 0` registran participación, pero no se convierten en notas
-  ni consumen el cupo de intentos evaluables (DEC-124-03). Comprobar código y tests
-  si algún documento anterior dice que al activar notas se recalcula toda la historia.
-- Mantener completion por nota y por estado; no convertir estado sin score en cero.
-  Cambio de modelo, borrado de intentos y privacy deben recalcular coherentemente.
-- Sesión, sesskey en el cuerpo JSON y permisos por actividad en web; validación de
-  parámetros/contexto/capacidades y esquema de retorno en servicios externos.
-  SCORM del navegador y móvil comparten reglas sin duplicarlas.
+- Stable `objectid` → stable `itemnumber`, not a page-local index. Reappearing items
+  retain their number; disappearing items are soft-deleted without losing history.
+  Keep the 100-column cap and `grade_idevice1_name`…`grade_idevice100_name` plus overall strings.
+- `peritem` only has per-iDevice columns: do not create a hidden/excluded overall
+  (the historical model superseded by DEC-25-01). `overall` only publishes itemnumber 0.
+- Authorized preview does not persist; clients cannot choose identity or create grade
+  items. Filter `itemscores` to this instance's objectids, cap size, normalize and
+  clamp scores; recompute overall using the current weighted contract.
+- A `sessiontoken` groups commits within one attempt; preserve locking, attempt limits
+  and highest/average/first/last/lowest aggregation.
+- `gradable = 0` rows record participation but never become grades or consume the
+  graded-attempt allowance (DEC-124-03). Check code/tests if an older document claims
+  that enabling grading recalculates all historical participation.
+- Preserve grade-based and status-based completion; do not convert a missing score
+  into zero. Model switches, attempt deletion and privacy must recalculate consistently.
+- Web requests require a session, sesskey in the JSON body and activity permissions;
+  external services validate parameters/context/capabilities and return schemas.
+  Browser SCORM and mobile share rules without duplicating them.
 
-Tests candidatos: `track_test.php`, `attempts_test.php`, `grades_test.php`,
+Candidate tests: `track_test.php`, `attempts_test.php`, `grades_test.php`,
 `grademodel_test.php`, `completion_test.php`, `external_test.php`,
-`local/tracking_endpoint_test.php` y `tests/js/scorm_tracker.test.js`.
-Elegir según el cambio; para el flujo visible reutilizar Behat de notas.
+`local/tracking_endpoint_test.php` and `tests/js/scorm_tracker.test.js`.
+Select by impact; reuse grade-related Behat scenarios for visible workflows.

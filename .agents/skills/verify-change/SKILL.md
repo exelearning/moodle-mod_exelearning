@@ -1,38 +1,38 @@
 ---
 name: verify-change
-description: Seleccionar y ejecutar las validaciones pertinentes para un diff de mod_exelearning, antes de subir o revisar un cambio.
+description: Select and run appropriate validation for a mod_exelearning diff before pushing or reviewing changes.
 ---
 
-# Verificar un cambio
+# Verify a change
 
-Revisar el diff completo respecto a la base del PR, incluidos archivos nuevos y cambios
-locales; seguir los callers del código afectado. Usar `DEVELOPMENT.md`, `Makefile` y
-`.github/workflows/ci.yml` para los comandos reales. Elegir por comportamiento además
-de rutas: una edición de `lib.php` puede afectar notas, paquetes o callbacks.
+Inspect the complete diff against the PR base, including new files and local changes;
+follow callers of affected code. Use `DEVELOPMENT.md`, `Makefile` and
+`.github/workflows/ci.yml` for actual commands. Select checks by behavior as well as
+paths: a `lib.php` edit may affect grades, packages or callbacks.
 
-| Cambio | Validación |
+| Change | Validation |
 |---|---|
-| PHP | PHPUnit de los comportamientos afectados y `vendor/bin/phpcs --standard=moodle <archivos>`; PHPDoc si cambia API/docblocks |
-| `js/scorm_tracker.js` o sus tests | `make test-js`; pruebas PHP de tracking si cambia el contrato |
-| `amd/src/` | Grunt AMD desde el checkout Moodle, limitado a `mod/exelearning`; revisar y guardar `amd/build/`; Behat del flujo |
-| `db/`, datos de usuario o fileareas | `moodle-upgrade`; `moodle-plugin-ci validate` y `savepoints`; instalación/upgrade y backup/privacy afectados |
-| `classes/external/` o `db/services.php` | `tests/external_test.php`, validación de parámetros/contexto/capacidades y retorno con `clean_returnvalue` |
-| Strings, settings o metadatos cacheables | PHPCS y política de versión en DEVELOPMENT; `make check-version` |
-| Templates o comportamiento visible | Mustache/Grunt según CI y escenarios Behat relevantes; justificar si PHPUnit ya cubre el cambio sin flujo UI |
-| Paquetes/editor/release | Skill del área; comprobaciones de empaquetado si cambia la distribución |
-| Solo Markdown/skills | Frontmatter, enlaces locales, descubrimiento y procedencia; no reconstruir el editor ni añadir tests de aplicación |
-| Workflows | `actionlint <workflow>` y revisión de triggers, permisos e inputs |
+| PHP | PHPUnit for affected behavior and `vendor/bin/phpcs --standard=moodle <files>`; PHPDoc when API/docblocks change |
+| `js/scorm_tracker.js` or its tests | `make test-js`; PHP tracking tests if the contract changes |
+| `amd/src/` | Moodle Grunt AMD limited to `mod/exelearning`; review and commit `amd/build/`; relevant Behat flow |
+| `db/`, user data or fileareas | `moodle-upgrade`; `moodle-plugin-ci validate` and `savepoints`; affected install/upgrade and backup/privacy tests |
+| `classes/external/` or `db/services.php` | `tests/external_test.php`, parameters/context/capabilities and return schema through `clean_returnvalue` |
+| Strings, settings or cacheable metadata | PHPCS and DEVELOPMENT version policy; `make check-version` |
+| Templates or visible behavior | Mustache/Grunt as defined in CI and relevant Behat scenarios; explain when PHPUnit covers the change without a UI flow |
+| Packages/editor/release | Domain skill; packaging checks when distribution changes |
+| Markdown/skills only | Frontmatter, local links, discovery and provenance; no editor rebuild or new application tests |
+| Workflows | `actionlint <workflow>` and review of triggers, permissions and inputs |
 
-PHPUnit local: `make test ARGS=mod/exelearning/tests/track_test.php` (ejemplo;
-elegir el archivo adecuado). No pasar el directorio completo. Si hay desajuste de
-versión del entorno de prueba, reinicializar con
+Local PHPUnit: `make test ARGS=mod/exelearning/tests/track_test.php` (example;
+select the appropriate file). Do not pass the entire directory. If the test
+environment reports a version mismatch, reinitialize with
 `docker compose exec moodle php /var/www/html/admin/tool/phpunit/cli/init.php`.
-No inicializar un sitio de producción para ejecutar tests.
+Do not initialize a production site to run tests.
 
-Los fixtures reales están en `tests/fixtures/` y `research/fixtures/elpx/`;
-el generador en `tests/generator/lib.php`. Los cambios de comportamiento añaden
-regresiones significativas, sin excluir código testeable para mejorar cobertura.
+Real fixtures live in `tests/fixtures/` and `research/fixtures/elpx/`; the generator
+is `tests/generator/lib.php`. Behavior changes add meaningful regressions; do not
+exclude testable code to improve coverage.
 
-Informar comando y resultado, fallos o dependencias ausentes. Distinguir comprobaciones
-no aplicables de pendientes; no convertir una suite no ejecutada en PASS. La selección
-local no elimina jobs de CI ni los criterios completos de una release.
+Report commands and results, failures or missing dependencies. Distinguish checks
+that are not applicable from pending ones; an unexecuted suite is not a PASS. Local
+selection does not remove CI jobs or the complete release readiness criteria.

@@ -1,0 +1,22 @@
+fecha: 2026-09-12
+sesion: agent-guidance-and-skills
+agente: codex
+herramienta_ia:
+  interfaz: codex
+  modelo: gpt-6
+resumen: >-
+  Reconciled active tracking instructions with DEC-122-01 without changing
+  historical decisions. Agent guidance and skills use English and route to
+  current code and domain documentation instead of duplicating session history.
+acciones:
+  - "research/AGENTS.md no longer presents xAPI as pending implementation."
+  - "Local skills preserve current package, grading, version and editor contracts."
+  - "Recorded the legacy schema checker's mismatch with migrated ADR field names."
+evidencia:
+  - "research/decisiones/adr/DEC-122-01-retirada-canal-ingesta-xapi.md"
+  - "docs/tracking-architecture.md"
+  - "classes/local/track.php"
+  - ".agents/references/external-skills.md"
+relacionados:
+  - DEC-122-01
+pendientes: []

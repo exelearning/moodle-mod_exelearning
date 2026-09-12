@@ -1,27 +1,27 @@
 ---
 name: behat-test
-description: Crear o depurar escenarios Behat de profesor, alumno y administración en mod_exelearning.
+description: Create or debug teacher, student and administrator Behat scenarios in mod_exelearning.
 ---
 
-# Behat del plugin
+# Plugin Behat tests
 
-Leer el escenario más cercano en `tests/behat/` y los pasos existentes en
-`tests/behat/behat_mod_exelearning.php`. Usar `@mod_exelearning`; `@javascript` cuando
-el flujo requiera navegador/JS. Reutilizar generadores de cursos, usuarios,
-matrículas y `tests/generator/lib.php` con fixtures reales.
+Read the nearest scenario under `tests/behat/` and existing steps in
+`tests/behat/behat_mod_exelearning.php`. Use `@mod_exelearning`; add `@javascript`
+when the flow requires browser/JS behavior. Reuse course, user and enrolment generators
+and `tests/generator/lib.php` with real fixtures.
 
-El paso `the following eXeLearning SCORM scores exist` siembra notas por la ingesta
-real para probar informes de forma determinista; no demuestra que el bridge JS haya
-funcionado. Si cambia el bridge, ejercitar también el iframe `exelearningobject` y
-el tracker, con el usuario/permiso correcto. Volver al frame padre cuando corresponda.
+The `the following eXeLearning SCORM scores exist` step seeds grades through actual
+ingestion for deterministic report tests; it does not prove the JS bridge worked.
+If the bridge changes, also exercise the `exelearningobject` iframe and tracker with
+the appropriate user/permissions. Return to the parent frame when required.
 
-Esperar por estado observable/pending de Moodle, no introducir sleeps para ocultar
-carreras. Buscar pasos core antes de añadir uno propio. Si se necesitan entidades
-custom, su registro pertenece a una clase `behat_*_generator` en `tests/generator/`,
-no a un método `get_creatable_entities` suelto en el contexto de pasos.
+Wait for observable state or Moodle pending work; do not hide races with sleeps.
+Look for core steps before adding custom ones. Custom entity registration belongs
+in a `behat_*_generator` class under `tests/generator/`, not an isolated
+`get_creatable_entities` method in the step context.
 
-Ejecutar en un Moodle de pruebas con Selenium y configuración Behat inicializada:
-`vendor/bin/behat --tags @mod_exelearning` (o feature/escenario afectado con su config).
-CI usa `moodle-plugin-ci behat --profile chrome`; consultar `DEVELOPMENT.md`.
-Regenerar configuración con `admin/tool/behat/cli/init.php` tras cambiar pasos/features.
-No afirmar que un fixture sembrado prueba una interacción real del navegador.
+Run against a test Moodle site with Selenium and initialized Behat configuration:
+`vendor/bin/behat --tags @mod_exelearning` (or the affected feature/scenario and config).
+CI uses `moodle-plugin-ci behat --profile chrome`; consult `DEVELOPMENT.md`.
+Regenerate configuration through `admin/tool/behat/cli/init.php` after step/feature changes.
+Do not claim that a seeded fixture validates a real browser interaction.

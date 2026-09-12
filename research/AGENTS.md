@@ -1,84 +1,58 @@
-# AGENTS.md — Reglas operativas para `research/`
+# Research operating rules
 
-Cualquier agente (humano o IA) que añada, modifique o cite contenido en este directorio
-debe seguir estas reglas. Las reglas son **vinculantes**: una contribución que no las
-cumpla debe rechazarse o corregirse antes de integrarse.
+Follow these rules when adding, editing or citing research. Preserve historical
+records in their original language; write new agent instructions and contributions
+in English. Documentation under the project's `docs/` may remain Spanish.
 
-## Principios
+## Evidence and scope
 
-1. **Evidencia antes que preferencia.** Toda afirmación técnica cita una fuente
-   verificable: `repo + ruta + commit`, doc oficial (con URL, versión y fecha de
-   consulta), o un experimento reproducible. Sin fuente no hay afirmación.
-2. **Estándar de tracking vigente.** SCORM 1.2 es el único canal del navegador,
-   con rutas estables por `objectid` y la ingesta compartida con servicios móviles.
-   `DEC-122-01` retiró el canal xAPI y sustituyó `DEC-17-01`, `DEC-0-18` y `DEC-85-01`.
-   Consultar `../docs/tracking-architecture.md` y el código; los registros anteriores
-   se conservan como historia, no como una orden de reimplantar xAPI. LRS, cmi5 y
-   LTI 1.3 AGS siguen fuera del alcance vigente.
-3. **Separación de capas.** Hechos en `fuentes/`, interpretaciones en `analisis/`,
-   decisiones en `decisiones/`. No mezclar. Una nota AN no decide; un ADR decide.
-4. **Trazabilidad.** Cada `TAREA` enlaza ≥1 fuente/análisis/pregunta. Cada `DEC` cita
-   evidencias (FTE/REPO/AN/EXP). Cada `EXP` registra comando, commit, entorno, métricas,
-   limitaciones.
-5. **Append-only.** `status.yaml`, ADRs y diario nunca se reescriben. Para invalidar un
-   ADR se publica otro que lo supersede (`supersede: DEC-<nº>-<NN>`, y el antiguo pasa a
-   `estado: Superseded` con `reemplazada_por:`).
-6. **IDs estables.** `REPO-NNN`, `FTE-NNN`, `AN-NNN`, `EXP-NNN`, `TAREA-NNN`, `PREG-NNN`,
-   `RIE-NNN` usan numeración monotónica y no se reutilizan. Las decisiones **no** llevan
-   contador global: se identifican por el número de seguimiento de GitHub del cambio
-   (issue, o PR si no hay issue) más una secuencia local de dos dígitos,
-   `DEC-<nº-seguimiento>-<NN>`. Nunca se abre un issue sólo para obtener un número. Ver
-   [`decisiones/README.md`](./decisiones/README.md) y
-   [`decisiones/mapa-migracion-ids.md`](./decisiones/mapa-migracion-ids.md).
-7. **Política de clones externos.** No se vendoran repositorios. Se enlazan por ruta
-   local absoluta (zona de clones de referencia documentada en `DEC-0-02`) y por URL +
-   commit upstream. Carpeta convencional para clones: `../_repos/` (no se crea
-   automáticamente; cada agente la gestiona).
-8. **Idioma.** Español. Excepciones literales: IDs (`DEC-0-03`), nombres de funciones y
-   APIs (`grade_update`, `core_xapi`), nombres propios (Moodle, eXeLearning), fragmentos
-   de código y rutas. Los términos técnicos sin traducción aceptada (gradebook,
-   line-item) se mantienen en inglés.
-9. **Context7 obligatorio** para documentar APIs de Moodle (grade API, core_xapi, mod
-   API), estándares (xAPI, cmi5, LTI 1.3) y librerías. Registrar en la ficha FTE: query
-   exacta, `library_id` resuelto, fecha de consulta, versión devuelta.
-10. **Marcas explícitas.** `[INTERPRETACION]` cuando se interpreta evidencia,
-    `[HIPOTESIS]` para conjeturas a validar, `[PENDIENTE: <qué>]` para huecos. Sin
-    marcas, el lector asume hecho citado.
-11. **Accesibilidad y privacidad desde el inicio.** WCAG 2.2 AA, GDPR, especial cuidado
-    con datos de menores en statements xAPI. Ver
-    [`cumplimiento/`](./cumplimiento/).
-12. **Licencias.** Toda dependencia externa (plugin, librería, estándar) declara su
-    licencia. Compatibilidad con GPLv3 de Moodle es requisito.
-13. **Experimentos reproducibles.** Sin comando, commit, entorno y métricas, un POC no
-    es un experimento; es una anécdota.
-14. **Definition of Done (por tarea).** Evidencia enlazada · IDs coherentes · YAML/MD
-    valida contra schema · índices regenerados (`python3 tools/build_indexes.py`) ·
-    entrada en diario.
-15. **Idempotencia.** Los scripts de `tools/` deben poder ejecutarse repetidamente sin
-    efectos secundarios externos.
-16. **Registro de IA.** Documentos generados con asistencia de IA registran en su
-    frontmatter `herramienta_ia: { interfaz: <claude-code|copilot|...>,
-    modelo: <model-id> }`.
+- Support technical claims with a repository path and commit, versioned official
+  documentation with consultation date, or a reproducible experiment. Distinguish
+  facts, interpretations, hypotheses and unresolved questions explicitly.
+- SCORM 1.2 is the only browser tracking channel, with stable objectid routing and
+  ingestion shared with mobile services. DEC-122-01 superseded DEC-17-01, DEC-0-18
+  and DEC-85-01. Consult `../docs/tracking-architecture.md` and current code;
+  historical xAPI plans are not instructions to restore it. LRS, cmi5 and LTI 1.3
+  AGS remain outside current scope.
+- Keep facts in `fuentes/`, interpretation in `analisis/` and decisions in
+  `decisiones/`. An analysis note does not make an architecture decision.
+- Each TAREA links to at least one source, analysis or question. Decisions cite
+  evidence; experiments record command, commit, environment, measurements and limits.
+- Use Context7 for API, standard and library documentation. Record the exact query,
+  resolved library ID, consultation date and returned version in the relevant source note.
+- Retain accessibility and privacy requirements: WCAG 2.2 AA, GDPR and special care
+  for children's data. Consult `cumplimiento/` when the task affects these areas.
+- Declare external licenses and compatibility with Moodle's GPLv3.
 
-## Flujo de trabajo recomendado
+## Records and identifiers
 
-1. `git pull` y leer `status.yaml`.
-2. Seleccionar o crear una `TAREA-NNN`.
-3. Localizar fuentes (`fuentes/repositorios/`, `fuentes/tecnologia/`) y consultar
-   Context7 si la tarea toca un estándar/API.
-4. Crear/actualizar notas (`analisis/notas/`) o experimentos
-   (`experimentos/resultados/`).
-5. Si la tarea cierra una decisión, abrir o aceptar un ADR.
-6. Actualizar `status.yaml` (append entrada nueva, no editar previas).
-7. Añadir entrada al diario de hoy.
-8. `python3 tools/build_indexes.py && python3 tools/test_schema_validation.py`.
-9. Commit y push.
+- `status.yaml`, ADRs and diary entries are append-only. Supersede invalidated
+  decisions with a new ADR and update supersession metadata using the current
+  format in `decisiones/README.md`; do not rewrite their historical rationale.
+- REPO, FTE, AN, EXP, TAREA, PREG and RIE IDs are monotonic and never reused.
+  Decisions use `DEC-<GitHub tracking number>-<two-digit sequence>`: issue number,
+  or PR number when no issue exists. Never open an issue just to allocate a number.
+  Consult `decisiones/mapa-migracion-ids.md` when dealing with retired identifiers.
+- Preserve schema field names and literal identifiers/API names. Record AI assistance
+  in the record's supported metadata (`herramienta_ia` for research YAML or
+  `ai_assistance` in the current ADR format), using the actual tool/model.
+- Before adding records, inspect current status and related sources. A task introducing
+  a durable technical decision needs an ADR with evidence, not just an analysis note.
+- Add a diary entry for research changes, append status when task status changes,
+  and regenerate indexes with `python3 research/tools/build_indexes.py`.
+- Validate current ADRs with `node research/tools/architecture-records.mts check`.
+  `test_schema_validation.py` is a legacy checker that still requires Spanish ADR
+  field names; do not rewrite migrated ADRs to satisfy it. Compare any reported
+  failures with the base branch before attributing them to a change.
 
-## Lo que NO se hace aquí
+## Reference material and experiments
 
-- Subir paquetes ELP/ELPX, ZIPs de SCORM ni binarios pesados al repo. Se referencian o
-  se generan en `experimentos/` con instrucciones de obtención.
-- Vendorar código de `mod_exescorm`, `mod_exeweb`, `wp-exelearning`, `moodle` ni de
-  `eXeLearning`.
-- Tomar decisiones técnicas sin ADR.
-- Escribir código de producción del plugin (eso es fase 1+).
+- Do not vendor external repositories into research. Reference a local clone path
+  and upstream URL/commit; `../_repos/` is the conventional reference-clone location
+  from DEC-0-02, not a directory to create automatically.
+- Do not add heavyweight ELP/ELPX, SCORM ZIP or binary artifacts. Reference existing
+  fixtures or provide reproducible generation/acquisition instructions.
+- Do not copy production code from Moodle or other plugins into research, or write
+  this plugin's production implementation here.
+- Keep research tools repeatable without external side effects. A proof of concept
+  is an experiment only when its commands, commit, environment and results are recorded.

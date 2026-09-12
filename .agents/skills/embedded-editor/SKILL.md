@@ -1,30 +1,28 @@
 ---
 name: embedded-editor
-description: Modificar la integración del editor embebido de mod_exelearning, su bootstrap, guardado o distribución.
+description: Change mod_exelearning embedded editor integration, bootstrap, saving or distribution.
 ---
 
-# Editor embebido
+# Embedded editor
 
-Entradas: `editor/index.php`, `editor/static.php`, `editor/save.php`, `editor/styles.php`;
-resolución en `classes/local/embedded_editor_source_resolver.php` y `editor_paths.php`.
-Leer los tests del resolver, rutas y estilos antes de cambiar contratos.
+Entry points: `editor/index.php`, `editor/static.php`, `editor/save.php`, `editor/styles.php`.
+Resolution lives in `classes/local/embedded_editor_source_resolver.php` and `editor_paths.php`.
+Read resolver, path and style tests before changing contracts.
 
-El editor se distribuye precompilado en `dist/static/` (DEC-106-01), no se instala
-ni actualiza desde el Moodle en ejecución. Respetar el interruptor global del editor
-(modo reproductor, DEC-108-01); no recuperar instalador runtime ni modo Online/HMAC.
+The editor ships prebuilt in `dist/static/` (DEC-106-01); a running Moodle site does
+not install or update it. Respect the global editor switch (player-only mode,
+DEC-108-01); do not restore the runtime installer or Online/HMAC integration.
 
-Guardado exige login, sesskey, contexto y capacidad de gestionar la actividad,
-además de editor habilitado. La exportación pasa por la activación de revisión de
-`package_manager` y después sincroniza iDevices/gradebook: un guardado corrupto no
-puede sustituir el contenido válido. Cubrir cambios en esos límites con pruebas de
-extracción y notas, no solo la respuesta HTTP.
+Saving requires login, sesskey, context and permission to manage the activity,
+plus an enabled editor. Export uses `package_manager` revision activation before
+synchronizing iDevices/gradebook: a corrupt save must not replace valid content.
+Test changes at these boundaries with extraction and grading checks, not just an
+HTTP response assertion.
 
-La UI AMD del plugin se reconstruye con Grunt Moodle. Cambiar ese bootstrap no exige
-compilar todo el editor upstream. `make build-editor` es necesario si el trabajo
-requiere el bundle; en una release usar la referencia/tag que especifica el workflow,
-coherente con `.editor-version`, nunca sustituirla por `main`. No editar `dist/static/`
-a mano ni añadirlo al repositorio por una tarea documental.
+Plugin AMD UI is rebuilt with Moodle Grunt. Changing its bootstrap does not require
+a full upstream editor build. Use `make build-editor` when the task needs the bundle;
+for releases use the workflow's reference/tag consistently with `.editor-version`,
+never substitute `main`. Do not hand-edit `dist/static/` or commit it for documentation work.
 
-Verificar que profesor y alumno mantienen acceso/denegación correctos, editor
-deshabilitado sigue funcionando como reproductor y el contenido guardado se puede
-volver a abrir. Consultar `release-preflight` si cambia el empaquetado.
+Verify teacher/student access boundaries, player behavior when the editor is disabled,
+and reopening saved content. Consult `release-preflight` when packaging changes.

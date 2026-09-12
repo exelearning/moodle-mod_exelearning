@@ -1,31 +1,30 @@
 ---
 name: release-preflight
-description: Auditar preparación de una release de mod_exelearning y su ZIP, sin crear tags ni publicar por defecto.
+description: Audit a mod_exelearning release candidate and ZIP without creating tags or publishing by default.
 ---
 
-# Preflight de release
+# Release preflight
 
-Usar `docs/RELEASE_CHECKLIST.md`, `DEVELOPMENT.md` (Packaging y Versioning),
-`.github/workflows/release.yml` y los scripts reales como fuente; no duplicar la
-checklist completa aquí. Obtener la versión objetivo del encargo o del PR de
-preparación; pedirla solo si no está determinada. Auditar no autoriza publicar.
+Use `docs/RELEASE_CHECKLIST.md`, `DEVELOPMENT.md` (Packaging and Versioning),
+`.github/workflows/release.yml` and actual scripts as sources; do not duplicate the
+whole checklist here. Obtain the target version from the request or preparation PR;
+ask only if it is undetermined. An audit does not authorize publishing.
 
-- Revisar changelog orientado a administradores con la skill `changelog` y PRs
-  fusionados; señalar omisiones sin inventar versiones o entradas.
-- `version.php` real y monótona, release final, `.editor-version` y pin de Playground
-  coherentes; `make check-version` y `make check-release-version RELEASE=X.Y.Z`.
-- Bundle del tag correcto del editor, con assets válidos. La release se dispara por
-  el cambio de `.editor-version` en main; no modificarlo para probar un workflow.
-- Comprobar `scripts/check-release-workflow.sh` y `scripts/check-package.sh` si se
-  audita distribución. Para verificar el artefacto real: `make package RELEASE=X.Y.Z`
-  requiere metadatos de release válidos y editor construido, no marcadores `dev`.
-- Inspeccionar el ZIP: raíz `exelearning/`, editor y `thirdpartylibs.xml` presentes;
-  `.agents/`, `.claude/`, research, dependencias y tooling de desarrollo ausentes
-  según `.distignore`. El empaquetado no cambia la versión comprometida.
-- Revisar resultados de la matriz PHPUnit/Behat, Vitest, linters y los casos de
-  backup/privacy/upgrade del checklist. Un resultado antiguo o no ejecutado no
-  satisface el gate de la versión candidata.
+- Review administrator-facing release notes with `changelog` and merged PRs; flag
+  omissions without inventing versions or entries.
+- Check real monotonic `version.php`, final release, `.editor-version` and Playground
+  pin consistency; run `make check-version` and `make check-release-version RELEASE=X.Y.Z`.
+- Require a valid editor bundle built from the matching tag. Changes to `.editor-version`
+  on main trigger release publication; do not change it merely to test a workflow.
+- Check `scripts/check-release-workflow.sh` and `scripts/check-package.sh` when auditing
+  distribution. To verify the actual artifact, `make package RELEASE=X.Y.Z` requires
+  valid release metadata and a built editor, not `dev` metadata.
+- Inspect the ZIP: top-level `exelearning/`, editor and `thirdpartylibs.xml` present;
+  `.agents/`, `.claude/`, research, development dependencies and tooling excluded by
+  `.distignore`. Packaging does not change the committed version.
+- Review the PHPUnit/Behat matrix, Vitest, linters and checklist backup/privacy/upgrade
+  cases. Old or unexecuted results do not satisfy the candidate's release gate.
 
-Entregar PASS/FAIL/PENDIENTE con evidencia y versión/commit; solo declarar lista para
-release si se cumplieron los criterios aplicables. No crear tags, publicar releases
-ni mezclar un PR sin autorización del usuario; respetar la autorización ya existente.
+Report PASS/FAIL/PENDING with evidence and version/commit; declare release readiness
+only when applicable criteria are met. Do not create tags, publish releases or merge
+PRs without user authorization; honor authorization already provided in the session.
