@@ -153,127 +153,135 @@ function exelearning_add_instance($data, $mform = null) {
 function exelearning_update_instance($data, $mform = null) {
     global $DB;
 
-    $data->id = $data->instance;
-    $data->timemodified = time();
-    // Snapshot the pre-update grading configuration so we can tell a pure grading
-    // change (re-aggregate valid attempts) from a package re-upload (DEC-12-01
-    // snapshot-and-warn) after the record is written (B2, DEC-34-01).
-    $oldrow = $DB->get_record(
-        'exelearning',
-        ['id' => $data->id],
-        'revision, grademodel, grademethod, gradeenabled',
-        MUST_EXIST
-    );
-    $data->revision = (int) ($oldrow->revision ?: 0) + 1;
-    if (!isset($data->grademax)) {
-        $data->grademax = 100;
+    $lock = \mod_exelearning\local\package_manager::get_package_lock((int) $data->instance);
+    if (!$lock) {
+        throw new \moodle_exception('locktimeout');
     }
-    if (!isset($data->grademin)) {
-        $data->grademin = 0;
-    }
-    if (!isset($data->gradepass)) {
-        $data->gradepass = 0;
-    }
-    if (!isset($data->grademethod)) {
-        $data->grademethod = \mod_exelearning\local\attempts::GRADE_HIGHEST;
-    }
-    if (!isset($data->grademodel)) {
-        $data->grademodel = EXELEARNING_GRADEMODEL_PERITEM;
-    }
-    if (!isset($data->maxattempt)) {
-        $data->maxattempt = 0;
-    }
-    if (!isset($data->reviewmode)) {
-        $data->reviewmode = \mod_exelearning\local\attempts::REVIEW_ALWAYS;
-    }
-    if (!isset($data->teachermodevisible)) {
-        $data->teachermodevisible = 0;
-    }
-    if (!isset($data->gradecat)) {
-        $data->gradecat = 0;
-    }
-    // Custom completion rule (DEC-69-01): NULL disables the rule. mod_form's
-    // data_postprocessing() sets this to an int or null; default to null when the
-    // caller does not provide it so an update never leaves a stray stale value.
-    if (!isset($data->completionstatusrequired)) {
-        $data->completionstatusrequired = null;
-    }
-
-    $contextid = context_module::instance($data->coursemodule)->id;
-
-    // Extract and validate the new revision BEFORE advancing the stored pointer (issue 73):
-    // a corrupt replacement throws here and leaves the DB row and the previous content
-    // untouched, so the activity keeps serving its last validated revision.
-    exelearning_save_and_extract_package($data);
-    $DB->update_record('exelearning', $data);
-
-    // The new revision is now validated and active. Prune the superseded content/package
-    // revisions only after the pointer has moved (so no concurrent view sees a gap), and
-    // only when the new revision actually produced servable content (a programmatic update
-    // with no package field skips extraction and relies on the view.php self-heal).
-    $fs = get_file_storage();
-    if ($fs->get_file($contextid, 'mod_exelearning', 'content', (int) $data->revision, '/', 'index.html')) {
-        \mod_exelearning\local\package_manager::prune_content_revisions($contextid, (int) $data->revision);
-        if (($storedpackage = exelearning_get_stored_package($contextid)) !== null) {
-            \mod_exelearning\local\package_manager::prune_package_revisions(
-                $contextid,
-                (int) $storedpackage->get_itemid()
-            );
+    try {
+        $data->id = $data->instance;
+        $data->timemodified = time();
+        // Snapshot the pre-update grading configuration so we can tell a pure grading
+        // change (re-aggregate valid attempts) from a package re-upload (DEC-12-01
+        // snapshot-and-warn) after the record is written (B2, DEC-34-01).
+        $oldrow = $DB->get_record(
+            'exelearning',
+            ['id' => $data->id],
+            'revision, grademodel, grademethod, gradeenabled',
+            MUST_EXIST
+        );
+        $data->revision = (int) ($oldrow->revision ?: 0) + 1;
+        if (!isset($data->grademax)) {
+            $data->grademax = 100;
         }
+        if (!isset($data->grademin)) {
+            $data->grademin = 0;
+        }
+        if (!isset($data->gradepass)) {
+            $data->gradepass = 0;
+        }
+        if (!isset($data->grademethod)) {
+            $data->grademethod = \mod_exelearning\local\attempts::GRADE_HIGHEST;
+        }
+        if (!isset($data->grademodel)) {
+            $data->grademodel = EXELEARNING_GRADEMODEL_PERITEM;
+        }
+        if (!isset($data->maxattempt)) {
+            $data->maxattempt = 0;
+        }
+        if (!isset($data->reviewmode)) {
+            $data->reviewmode = \mod_exelearning\local\attempts::REVIEW_ALWAYS;
+        }
+        if (!isset($data->teachermodevisible)) {
+            $data->teachermodevisible = 0;
+        }
+        if (!isset($data->gradecat)) {
+            $data->gradecat = 0;
+        }
+        // Custom completion rule (DEC-69-01): NULL disables the rule. mod_form's
+        // data_postprocessing() sets this to an int or null; default to null when the
+        // caller does not provide it so an update never leaves a stray stale value.
+        if (!isset($data->completionstatusrequired)) {
+            $data->completionstatusrequired = null;
+        }
+
+        $contextid = context_module::instance($data->coursemodule)->id;
+
+        // Extract and validate the new revision BEFORE advancing the stored pointer (issue 73):
+        // a corrupt replacement throws here and leaves the DB row and the previous content
+        // untouched, so the activity keeps serving its last validated revision.
+        exelearning_save_and_extract_package($data);
+        $DB->update_record('exelearning', $data);
+
+        // The new revision is now validated and active. Prune the superseded content/package
+        // revisions only after the pointer has moved (so no concurrent view sees a gap), and
+        // only when the new revision actually produced servable content (a programmatic update
+        // with no package field skips extraction and relies on the view.php self-heal).
+        $fs = get_file_storage();
+        if ($fs->get_file($contextid, 'mod_exelearning', 'content', (int) $data->revision, '/', 'index.html')) {
+            \mod_exelearning\local\package_manager::prune_content_revisions($contextid, (int) $data->revision);
+            if (($storedpackage = exelearning_get_stored_package($contextid)) !== null) {
+                \mod_exelearning\local\package_manager::prune_package_revisions(
+                    $contextid,
+                    (int) $storedpackage->get_itemid()
+                );
+            }
+        }
+
+        $delta = exelearning_sync_grade_items($data->id, $contextid);
+
+        // A pure grading-configuration change leaves the stored attempts valid, but
+        // exelearning_sync_grade_items() deletes and recreates the gradebook columns
+        // empty (PERITEM<->OVERALL, or grading switched back on) or keeps them aggregated
+        // with the old method — so the published grades would vanish or go stale until
+        // students resubmit. Re-publish them from the attempt history (B2, DEC-34-01).
+        // A package re-upload (content change) is deliberately NOT recomputed here: it
+        // keeps DEC-12-01 snapshot-and-warn semantics via exelearning_warn_if_grades_stale()
+        // below.
+        //
+        // gradeenabled belongs in this condition for the same reason as the other two, and
+        // it is what finally makes DEC-13-07's promise true: switching the master grading
+        // switch off keeps exelearning_attempt so that "reactivar gradeenabled re-detecta y
+        // recalcula desde el historial". sync() only did the re-detect half — it recreated
+        // the columns EMPTY — so a teacher who toggled the switch off and back on lost the
+        // published grades of learners who had already been assessed.
+        //
+        // The off direction is a safe no-op: grade_sync::update_grades() returns immediately
+        // when gradeenabled is unset, so nothing is published into the items sync() has just
+        // deleted.
+        //
+        // Fall back to the stored value rather than to a constant when the caller omits the
+        // field: unlike grademodel/grademethod above there is no safe default here, and
+        // assuming "enabled" would let a programmatic update silently switch grading on.
+        //
+        // Hydrating $data with the result is not cosmetic. exelearning_update_grades()
+        // reads $exelearning->gradeenabled and returns early when it is empty, so a
+        // programmatic caller that changed grademodel or grademethod WITHOUT passing
+        // gradeenabled would reach the republish call and have it silently do nothing —
+        // leaving the recreated columns empty on a perfectly graded activity. Predates the
+        // gradeenabled clause below; the form is unaffected because it posts the whole
+        // object.
+        $newgradeenabled = (int) ($data->gradeenabled ?? $oldrow->gradeenabled);
+        $data->gradeenabled = $newgradeenabled;
+        if (
+            (int) $data->grademodel !== (int) $oldrow->grademodel
+            || (int) $data->grademethod !== (int) $oldrow->grademethod
+            || $newgradeenabled !== (int) $oldrow->gradeenabled
+        ) {
+            exelearning_update_grades($data, 0);
+        }
+
+        // Re-uploading a package over an activity that already has attempts may add,
+        // remove or re-score gradable iDevices; warn that old grades are not
+        // recomputed (DEC-12-01). The notice renders on the post-form redirect.
+        exelearning_warn_if_grades_stale($data->id, $delta, (int) $data->coursemodule);
+
+        // Also warn if the package exceeds the gradebook item cap (excess iDevices dropped).
+        exelearning_warn_if_grade_items_capped($delta);
+
+        return true;
+    } finally {
+        $lock->release();
     }
-
-    $delta = exelearning_sync_grade_items($data->id, $contextid);
-
-    // A pure grading-configuration change leaves the stored attempts valid, but
-    // exelearning_sync_grade_items() deletes and recreates the gradebook columns
-    // empty (PERITEM<->OVERALL, or grading switched back on) or keeps them aggregated
-    // with the old method — so the published grades would vanish or go stale until
-    // students resubmit. Re-publish them from the attempt history (B2, DEC-34-01).
-    // A package re-upload (content change) is deliberately NOT recomputed here: it
-    // keeps DEC-12-01 snapshot-and-warn semantics via exelearning_warn_if_grades_stale()
-    // below.
-    //
-    // gradeenabled belongs in this condition for the same reason as the other two, and
-    // it is what finally makes DEC-13-07's promise true: switching the master grading
-    // switch off keeps exelearning_attempt so that "reactivar gradeenabled re-detecta y
-    // recalcula desde el historial". sync() only did the re-detect half — it recreated
-    // the columns EMPTY — so a teacher who toggled the switch off and back on lost the
-    // published grades of learners who had already been assessed.
-    //
-    // The off direction is a safe no-op: grade_sync::update_grades() returns immediately
-    // when gradeenabled is unset, so nothing is published into the items sync() has just
-    // deleted.
-    //
-    // Fall back to the stored value rather than to a constant when the caller omits the
-    // field: unlike grademodel/grademethod above there is no safe default here, and
-    // assuming "enabled" would let a programmatic update silently switch grading on.
-    //
-    // Hydrating $data with the result is not cosmetic. exelearning_update_grades()
-    // reads $exelearning->gradeenabled and returns early when it is empty, so a
-    // programmatic caller that changed grademodel or grademethod WITHOUT passing
-    // gradeenabled would reach the republish call and have it silently do nothing —
-    // leaving the recreated columns empty on a perfectly graded activity. Predates the
-    // gradeenabled clause below; the form is unaffected because it posts the whole
-    // object.
-    $newgradeenabled = (int) ($data->gradeenabled ?? $oldrow->gradeenabled);
-    $data->gradeenabled = $newgradeenabled;
-    if (
-        (int) $data->grademodel !== (int) $oldrow->grademodel
-        || (int) $data->grademethod !== (int) $oldrow->grademethod
-        || $newgradeenabled !== (int) $oldrow->gradeenabled
-    ) {
-        exelearning_update_grades($data, 0);
-    }
-
-    // Re-uploading a package over an activity that already has attempts may add,
-    // remove or re-score gradable iDevices; warn that old grades are not
-    // recomputed (DEC-12-01). The notice renders on the post-form redirect.
-    exelearning_warn_if_grades_stale($data->id, $delta, (int) $data->coursemodule);
-
-    // Also warn if the package exceeds the gradebook item cap (excess iDevices dropped).
-    exelearning_warn_if_grade_items_capped($delta);
-
-    return true;
 }
 
 /**

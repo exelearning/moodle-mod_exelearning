@@ -24,9 +24,10 @@ Preserve these invariants:
   clamp scores; recompute overall using the current weighted contract.
 - A `sessiontoken` groups commits within one attempt; preserve locking, attempt limits
   and highest/average/first/last/lowest aggregation.
-- `gradable = 0` rows record participation but never become grades or consume the
-  graded-attempt allowance (DEC-124-03). Check code/tests if an older document claims
-  that enabling grading recalculates all historical participation.
+- With grading disabled, ingestion acknowledges without new attempts, grades or
+  events (DEC-126-01). Historical `gradable = 0` rows never become grades or consume
+  the graded-attempt allowance (DEC-124-03); keep their read-side exclusions.
+  Status completion can read historical attempts but cannot record new ungraded work.
 - Preserve grade-based and status-based completion; do not convert a missing score
   into zero. Model switches, attempt deletion and privacy must recalculate consistently.
 - Web requests require a session, sesskey in the JSON body and activity permissions;

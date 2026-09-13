@@ -44,6 +44,101 @@ use stdClass;
  */
 final class package_manager {
     /**
+     * Serializes package revision allocation, extraction and activation for an instance.
+     *
+     * Viewer refreshes, form updates and editor saves must hold the same lock until
+     * pruning and grade synchronization finish, so none can consume another's staged ZIP.
+     *
+     * @param int $instanceid Activity instance id.
+     * @return \core\lock\lock|null Acquired lock, or null when another writer is busy.
+     */
+    public static function get_package_lock(int $instanceid): ?\core\lock\lock {
+        $factory = \core\lock\lock_config::get_lock_factory('mod_exelearning');
+        return $factory->get_lock('package_' . $instanceid, 5) ?: null;
+    }
+
+    /**
+     * Refreshes extracted packages after the bundled SCORM runtime changes (DEC-105-01).
+     *
+     * Existing content is a stored copy, so replacing plugin assets alone does not
+     * upgrade it. A new revision also invalidates cached HTML and runtime URLs.
+     * Reuse the validated activation path: an unreadable source must leave the
+     * previous content and revision available to the learner.
+     *
+     * @param int $contextid Module context id.
+     * @param stdClass $instance Activity row; its revision is updated in place.
+     */
+    public static function refresh_runtime(int $contextid, stdClass $instance): void {
+        global $DB;
+
+        if (self::runtime_is_current($contextid, (int) $instance->revision)) {
+            return;
+        }
+        $lock = self::get_package_lock((int) $instance->id);
+        if (!$lock) {
+            return;
+        }
+        try {
+            // A previous viewer may already have refreshed this instance while we
+            // waited. Read the pointer again before choosing or deleting a revision.
+            $current = $DB->get_record('exelearning', ['id' => $instance->id], 'id, revision', MUST_EXIST);
+            $instance->revision = (int) $current->revision;
+            // Missing content keeps the existing viewer self-heal path and revision.
+            $entry = get_file_storage()->get_file(
+                $contextid,
+                'mod_exelearning',
+                'content',
+                $current->revision,
+                '/',
+                'index.html'
+            );
+            if (!$entry) {
+                return;
+            }
+            if (self::runtime_is_current($contextid, (int) $current->revision) || !self::get_stored_package($contextid)) {
+                return;
+            }
+            try {
+                // Pass only the revision fields: a runtime refresh must not write
+                // back unrelated settings from a viewer's earlier instance snapshot.
+                self::store_and_activate_revision($contextid, $current, (int) $current->revision + 1);
+                $instance->revision = (int) $current->revision;
+                \exelearning_sync_grade_items((int) $instance->id, $contextid);
+                $instance->gradesyncrev = $instance->revision;
+            } catch (\moodle_exception $e) {
+                if ($e->errorcode !== 'migrateextractfailed') {
+                    throw $e;
+                }
+                debugging('mod_exelearning: runtime refresh kept the previous revision after extraction failed.', DEBUG_DEVELOPER);
+            }
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
+     * Whether both extracted SCORM files match this plugin's bundled pair.
+     *
+     * @param int $contextid Module context id.
+     * @param int $revision Extracted content revision.
+     * @return bool True when no runtime refresh is needed or the bundled pair is unavailable.
+     */
+    private static function runtime_is_current(int $contextid, int $revision): bool {
+        $fs = get_file_storage();
+        $current = true;
+        foreach (['SCORM_API_wrapper.js', 'SCOFunctions.js'] as $name) {
+            $asset = __DIR__ . '/../../assets/scorm/' . $name;
+            if (!is_file($asset)) {
+                // As in extract_stored(), never attempt to install half a runtime.
+                return true;
+            }
+            $file = $fs->get_file($contextid, 'mod_exelearning', 'content', $revision, '/libs/', $name);
+            $current = $current && $file && $file->get_contenthash() === sha1_file($asset);
+        }
+        return $current;
+    }
+
+    /**
      * Saves the uploaded ELPX in the 'package' filearea and extracts it to 'content/{revision}/'.
      *
      * @param stdClass $data Form data (with `coursemodule`, `package` draftid, `revision`).
@@ -239,11 +334,29 @@ final class package_manager {
             1
         );
 
-        // 5) If the package (web export) does not include libs/SCORM_API_wrapper.js,
-        // inject it from the plugin's assets/ directory. eXeLearning v4 only bundles
-        // this wrapper in the SCORM export; without it, gradable iDevices display
-        // "this page is not part of a SCORM package".
-        foreach (['SCORM_API_wrapper.js', 'SCOFunctions.js'] as $shimname) {
+        // 5) Install the plugin's own SCORM 1.2 runtime, ALWAYS, replacing whatever
+        // the package carried. This activity grades with the runtime the plugin
+        // ships and no other: a web export brings none at all, and a SCORM export
+        // brings one of unknown vintage that would otherwise decide the marks this
+        // plugin then has to read back. One runtime per eXeLearning version, and the
+        // plugin's copy is the one that runs.
+        //
+        // The pair is installed together or not at all. Mixing the plugin's wrapper
+        // with a package's SCOFunctions.js — which the previous per-file loop could
+        // do — pairs files written against different wrapper versions, a combination
+        // neither project tests.
+        $runtimefiles = ['SCORM_API_wrapper.js', 'SCOFunctions.js'];
+        $runtimepaths = [];
+        foreach ($runtimefiles as $shimname) {
+            $assetpath = __DIR__ . '/../../assets/scorm/' . $shimname;
+            if (!is_file($assetpath)) {
+                // Never install half a runtime; leave the package untouched instead.
+                $runtimepaths = [];
+                break;
+            }
+            $runtimepaths[$shimname] = $assetpath;
+        }
+        foreach ($runtimepaths as $shimname => $assetpath) {
             $present = $fs->get_file(
                 $context->id,
                 'mod_exelearning',
@@ -253,11 +366,7 @@ final class package_manager {
                 $shimname
             );
             if ($present) {
-                continue;
-            }
-            $assetpath = __DIR__ . '/../../assets/scorm/' . $shimname;
-            if (!is_file($assetpath)) {
-                continue;
+                $present->delete();
             }
             $fs->create_file_from_pathname([
                 'contextid' => $context->id,

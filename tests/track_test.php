@@ -303,6 +303,184 @@ final class track_test extends advanced_testcase {
     }
 
     /**
+     * parse_suspend_data() tolerates a trailing "; <label>: <n>" group after the
+     * weight — a legacy writer that appends a labelled per-iDevice field
+     * (exelearning #2322 adds "; Estado: <0|1|2>") must not make the record vanish
+     * from the gradebook. Records with and without the suffix parse alike, the suffix
+     * is ignored, and a suffix that is not a labelled number is still rejected. Keeps
+     * parity with the JS parser in the view.php shim.
+     */
+    public function test_parse_suspend_data_tolerates_a_trailing_label_suffix(): void {
+        $suspend = '1. "Quiz"; Puntuación: 60%; Peso: 30%; Estado: 2' . ".\t"
+                . '2. "Plain"; Puntuación: 70%; Peso: 35%' . ".\t"
+                . '3. "Last"; Puntuación: 80%; Peso: 35%; Estado: 1.';
+
+        $parsed = track::parse_suspend_data($suspend);
+
+        $this->assertSame([1, 2, 3], array_keys($parsed));
+        $this->assertSame('Quiz', $parsed[1]['title']);
+        $this->assertEqualsWithDelta(60.0, $parsed[1]['scorepct'], 0.0001);
+        $this->assertEqualsWithDelta(30.0, $parsed[1]['weighted'], 0.0001);
+        $this->assertSame('Plain', $parsed[2]['title']);
+        $this->assertEqualsWithDelta(70.0, $parsed[2]['scorepct'], 0.0001);
+        $this->assertEqualsWithDelta(35.0, $parsed[2]['weighted'], 0.0001);
+        $this->assertEqualsWithDelta(80.0, $parsed[3]['scorepct'], 0.0001);
+        $this->assertArrayNotHasKey('objectid', $parsed[1], 'a legacy record still names no owner');
+
+        // Not a labelled number: still malformed, still skipped.
+        $this->assertSame([], track::parse_suspend_data('1. "Quiz"; score: 60%; weighted: 30%; garbage.'));
+        $this->assertSame([], track::parse_suspend_data('1. "Quiz"; score: 60%; weighted: 30% trailing.'));
+    }
+
+    /**
+     * parse_suspend_data() also decodes the VERSIONED `exe12/` payload written by
+     * eXeLearning's SCORM 1.2 runtime (core PR #2209). Its records carry the activity
+     * id, so the result is keyed by stable objectid instead of by a page-local index,
+     * and the score is read from its own field — never derived from the counters.
+     */
+    public function test_parse_suspend_data_reads_the_versioned_exe12_payload(): void {
+        // Captured verbatim from a package built by the new runtime: answered 0 of
+        // total 4, yet the score is 100.
+        $parsed = track::parse_suspend_data('exe12/1|ide-a;7;0;4;100;25;0;100');
+
+        $this->assertSame(['ide-a'], array_keys($parsed));
+        $this->assertSame('ide-a', $parsed['ide-a']['objectid']);
+        $this->assertEqualsWithDelta(100.0, $parsed['ide-a']['scorepct'], 0.0001);
+        $this->assertEqualsWithDelta(25.0, $parsed['ide-a']['weighted'], 0.0001);
+        // The versioned format drops titles.
+        $this->assertSame('', $parsed['ide-a']['title']);
+
+        // Several records, each scaled with its own min/max window: 5 in 0..10 = 50%.
+        $parsed = track::parse_suspend_data('exe12/1|a;1;0;0;5;75;0;10|b;1;0;0;30;1;0;0');
+        $this->assertSame(['a', 'b'], array_keys($parsed));
+        $this->assertEqualsWithDelta(50.0, $parsed['a']['scorepct'], 0.0001);
+        $this->assertEqualsWithDelta(75.0, $parsed['a']['weighted'], 0.0001);
+        // A degenerate range (max <= min) falls back to a 100-wide window.
+        $this->assertEqualsWithDelta(30.0, $parsed['b']['scorepct'], 0.0001);
+
+        // Out-of-window scores are clamped, and the id is percent-decoded.
+        $this->assertEqualsWithDelta(
+            100.0,
+            track::parse_suspend_data('exe12/1|q;1;0;0;250;1;0;100')['q']['scorepct'],
+            0.0001
+        );
+        $this->assertSame(
+            ['ide a|b'],
+            array_keys(track::parse_suspend_data('exe12/1|ide%20a%7Cb;1;0;0;10;1;0;100'))
+        );
+
+        // A header with no records at all is valid: nothing has registered yet.
+        $this->assertSame([], track::parse_suspend_data('exe12/1'));
+    }
+
+    /**
+     * The versioned records that must never reach a gradebook column are dropped:
+     * an unclaimed migrated legacy pool record (which names a page position, not an
+     * iDevice), a non-evaluable activity, and one whose score field is still empty.
+     */
+    public function test_parse_suspend_data_skips_unusable_exe12_records(): void {
+        $parsed = track::parse_suspend_data(
+            'exe12/1|ok;1;0;0;40;1;0;100'          // Evaluable and scored: kept.
+                . '|noscore;1;0;0;;1;0;100'        // Evaluable but no result yet.
+                . '|notevaluable;6;0;0;80;1;0;100' // Flagged completionRequired + completed only.
+                . '|3;40;1'                        // Unclaimed migrated legacy record.
+                . '|;1;0;0;50;1;0;100'             // Empty id.
+                . '|short;1;0;0'                   // Truncated record.
+                . '|bad;x;0;0;50;1;0;100'          // Unreadable flags.
+                . '|ide%zz;1;0;0;50;1;0;100'       // Malformed percent escape in the id.
+        );
+
+        $this->assertSame(['ok'], array_keys($parsed));
+        $this->assertEqualsWithDelta(40.0, $parsed['ok']['scorepct'], 0.0001);
+    }
+
+    /**
+     * A payload version this parser does not know yields NOTHING rather than a
+     * best-effort parse: a future revision may reorder or repurpose fields, and
+     * publishing a wrong grade is worse than publishing none.
+     */
+    public function test_parse_suspend_data_ignores_an_unsupported_exe12_version(): void {
+        $this->assertSame([], track::parse_suspend_data('exe12/2|ide-a;7;0;4;100;25;0;100'));
+        $this->assertDebuggingCalled();
+
+        $this->assertSame([], track::parse_suspend_data('exe12/x|ide-a;7;0;4;100;25;0;100'));
+        $this->assertDebuggingCalled();
+
+        $this->assertSame([], track::parse_suspend_data('exe12/|ide-a;7;0;4;100;25;0;100'));
+        $this->assertDebuggingCalled();
+    }
+
+    /**
+     * objectid_scores() lifts out the entries that know their own identity. Only the
+     * versioned format produces them; a legacy payload yields an empty array, which
+     * is what keeps it on the page-local fallback path.
+     */
+    public function test_objectid_scores_only_returns_self_identifying_entries(): void {
+        $versioned = track::parse_suspend_data('exe12/1|ide-a;7;0;4;100;25;0;100');
+        $this->assertSame(['ide-a'], array_keys(track::objectid_scores($versioned)));
+
+        $legacy = track::parse_suspend_data('1. "Quiz"; Puntuación: 80%; Peso: 100%');
+        $this->assertSame([], track::objectid_scores($legacy));
+        $this->assertSame([], track::objectid_scores([]));
+    }
+
+    /**
+     * apply_legacy_peritem() treats its keys as itemnumbers, so it must refuse an
+     * entry that carries an objectid: casting "ide-a" to int would route a real score
+     * to itemnumber 0. ingest() never sends one here; this is the guard for any other
+     * caller.
+     */
+    public function test_apply_legacy_peritem_refuses_objectid_entries(): void {
+        global $DB;
+        [$instance, $student] = $this->create_activity_with_student();
+
+        $attempt = local\attempts::resolve_attempt_number($instance->id, $student->id, 'sessV');
+        $saved = track::apply_legacy_peritem($instance, $student->id, $attempt, [
+            'ide-a' => ['scorepct' => 70.0, 'weighted' => 100.0, 'title' => '', 'objectid' => 'ide-a'],
+        ], 'sessV');
+
+        $this->assertSame([], $saved);
+        $this->assertSame(0, $DB->count_records('exelearning_attempt', [
+            'exelearningid' => $instance->id, 'userid' => $student->id,
+        ]));
+    }
+
+    /**
+     * End to end: a client that sends no objectid map but whose package writes the
+     * versioned payload is still graded per iDevice, because every record names its
+     * own objectid. The overall is recomputed from those records (DEC-6-01), so the
+     * client's cmi.core.score.raw is not trusted here either.
+     */
+    public function test_ingest_routes_a_versioned_suspend_payload_by_objectid(): void {
+        [$instance, $student] = $this->create_activity_with_student();
+        [$course, $cm] = $this->course_and_cm($instance);
+        $obj1 = $this->objectid_for($instance, 1);
+        $obj2 = $this->objectid_for($instance, 2);
+
+        $payload = [
+            'session' => 'sessExe12',
+            'cmi' => [
+                'cmi.core.score.raw' => '0',
+                'cmi.core.score.max' => '100',
+                'cmi.core.lesson_status' => 'completed',
+                'cmi.suspend_data' => 'exe12/1|' . rawurlencode($obj1) . ';7;0;4;80;100;0;100'
+                    . '|' . rawurlencode($obj2) . ';7;0;4;40;100;0;100',
+            ],
+        ];
+
+        $result = track::ingest($instance, $course, $cm, $student->id, $payload, false);
+
+        // The recomputed overall (60) diverges from the client's 0, which is logged.
+        $this->assertDebuggingCalled();
+        $this->assertTrue($result['ok']);
+        $this->assertEqualsWithDelta(80.0, $result['peritem'][1], 0.0001);
+        $this->assertEqualsWithDelta(40.0, $result['peritem'][2], 0.0001);
+        $this->assertEqualsWithDelta(60.0, $result['rawscore'], 0.0001);
+        $this->assertEqualsWithDelta(80.0, $this->published_grade($instance, $student->id, 1), 0.0001);
+        $this->assertEqualsWithDelta(40.0, $this->published_grade($instance, $student->id, 2), 0.0001);
+    }
+
+    /**
      * Loads the course and cm records for an instance (ingest() needs both for the
      * completion update).
      *
@@ -314,6 +492,47 @@ final class track_test extends advanced_testcase {
         $cm = get_coursemodule_from_instance('exelearning', $instance->id, 0, false, MUST_EXIST);
         $course = $DB->get_record('course', ['id' => $cm->course], '*', MUST_EXIST);
         return [$course, $cm];
+    }
+
+    /**
+     * Historical participation stays ungraded when an old session resumes after upgrade.
+     *
+     * @param int $grademodel Grade model to exercise.
+     * @dataProvider grading_disabled_models_provider
+     */
+    public function test_historical_ungraded_session_cannot_publish_new_item_scores(int $grademodel): void {
+        global $DB;
+        [$instance, $student] = $this->create_activity_with_student(['grademodel' => $grademodel]);
+        [$course, $cm] = $this->course_and_cm($instance);
+        // Earlier releases stored participation; DEC-126-01 must preserve its exclusion.
+        \mod_exelearning\local\attempts::record_item(
+            $instance->id,
+            $student->id,
+            1,
+            0,
+            50,
+            100,
+            'incomplete',
+            'historical',
+            false
+        );
+        $result = track::ingest($instance, $course, $cm, $student->id, [
+            'session' => 'historical',
+            'cmi' => ['cmi.core.score.raw' => '80', 'cmi.core.lesson_status' => 'completed'],
+            'itemscores' => [$this->objectid_for($instance, 1) => ['scorepct' => 80, 'weighted' => 100]],
+        ], false);
+        $this->assertTrue($result['ok']);
+        $rows = $DB->get_records('exelearning_attempt', [
+            'exelearningid' => $instance->id, 'userid' => $student->id,
+        ]);
+        $this->assertCount(2, $rows);
+        foreach ($rows as $row) {
+            $this->assertSame(0, (int) $row->gradable);
+            $this->assertSame(1, (int) $row->attempt);
+        }
+        $this->assertNull($this->published_grade($instance, $student->id, 0));
+        $this->assertNull($this->published_grade($instance, $student->id, 1));
+        $this->assertSame(0, \mod_exelearning\local\attempts::count_user_attempts($instance->id, $student->id));
     }
 
     /**
@@ -359,34 +578,18 @@ final class track_test extends advanced_testcase {
     }
 
     /**
-     * With the master grading switch off (DEC-13-07), ingest() records the attempt but
-     * publishes NOTHING to the gradebook.
+     * With the master grading switch off (DEC-13-07), ingest() records NOTHING
+     * (DEC-126-01).
      *
-     * This is the contract the form's own help text states — "no grade columns and no
-     * reports" — and until this change it did not hold. gradeenabled=0 leaves the
-     * instance with no grade items, so the registered-objectid filter empties
-     * itemscores and the server-side recompute never runs; the OVERALL publication then
-     * fell through to the CLIENT's corruptible cmi.core.score.raw and grade_update()
-     * RECREATED the column exelearning_sync_grade_items() had just deleted.
-     *
-     * Retiring the xAPI channel is what makes this reachable for every package: view.php
-     * used to pass disableTracking = $emitsxapi, so the SCORM shim was inert for any
-     * package that emits xAPI — which is every recent export. With the shim always live,
-     * the first submission after a teacher turns grading off would resurrect the column.
-     *
-     * The attempt row IS still written, deliberately. DEC-69-01's completion by status
-     * reads it filtering on exelearningid, userid, itemnumber and status — never on
-     * gradeenabled — and mod_form.php does not gate that rule on the switch either, so
-     * completion by status is settable, and has to work, on an ungraded activity. It is
-     * also the history DEC-13-07 preserves so grading can be recomputed when the switch
-     * goes back on (DEC-124-01).
+     * Not a row marked ungraded, not a grade, not an event. The activity is a plain
+     * resource while the switch is off, and a plain resource has no tracking table to
+     * write to. This is what makes "work done while ungraded never becomes a grade"
+     * (DEC-124-03) true by construction rather than by a mechanism that has to hold.
      *
      * @param int $grademodel The grade model to exercise.
      * @dataProvider grading_disabled_models_provider
      */
-    public function test_ingest_with_grading_disabled_records_attempt_but_publishes_no_grade(
-        int $grademodel
-    ): void {
+    public function test_ingest_with_grading_disabled_records_nothing(int $grademodel): void {
         global $DB;
         [$instance, $student] = $this->create_activity_with_student([
             'gradeenabled' => 0,
@@ -397,56 +600,40 @@ final class track_test extends advanced_testcase {
         $result = track::ingest($instance, $course, $cm, $student->id, [
             'session'    => 'sessOff',
             'cmi'        => [
-                // A corruptible client-side value: the gradebook may not see it.
+                // A corruptible client-side value: nothing may trust it.
                 'cmi.core.score.raw'     => '95',
                 'cmi.core.score.max'     => '100',
                 'cmi.core.lesson_status' => 'passed',
             ],
-            // A client may also send scores for objectids that are no longer registered.
             'itemscores' => [
                 'ide-a' => ['scorepct' => 95.0, 'weighted' => 100.0, 'title' => 'a'],
             ],
         ], false);
+
+        // Acknowledged, so the client does not retry, but nothing was done.
         $this->assertTrue($result['ok']);
+        $this->assertTrue($result['noop']);
+        $this->assertArrayNotHasKey('rawscore', $result);
 
-        // Nothing in the gradebook: not the overall column, not a per-iDevice one. Note
-        // this asserts more than "the value is null" — grade_update() would RECREATE a
-        // deleted grade item, so the item itself must not come back.
-        $grades = grade_get_grades($instance->course, 'mod', 'exelearning', $instance->id, $student->id);
-        $this->assertSame([], $grades->items);
-
-        // But the attempt IS recorded, itemnumber 0 included: completion by status reads
-        // exactly that row.
-        $this->assertTrue($DB->record_exists('exelearning_attempt', [
+        // No attempt row at all. Note this asserts more than "the grade is null":
+        // grade_update() would RECREATE a deleted grade item, so the item itself must
+        // not come back either.
+        $this->assertFalse($DB->record_exists('exelearning_attempt', [
             'exelearningid' => $instance->id,
             'userid'        => $student->id,
-            'itemnumber'    => 0,
         ]));
+        $grades = grade_get_grades($instance->course, 'mod', 'exelearning', $instance->id, $student->id);
+        $this->assertSame([], $grades->items);
     }
 
     /**
-     * A teacher flipping the grading switch mid-session cannot get the work recorded
-     * during the ungraded period into the gradebook (DEC-124-03).
-     *
-     * The payload carries the SAME itemscores map on both POSTs, because that is what the
-     * client really sends: js/scorm_tracker.js accumulates the map and never clears it —
-     * deliberately, so a failed POST cannot lose a score — so every later POST re-sends
-     * everything captured during the ungraded period.
-     *
-     * That is why the session cannot simply be split into a second, gradable attempt. The
-     * server cannot tell which entries of the accumulated map were earned before the
-     * switch and which after, so a fresh gradable attempt is a clean vessel for
-     * contaminated content. A session that crossed the switch produces no grade at all;
-     * reloading mints a new token and a clean attempt.
-     *
-     * Both grade models, because they publish through different code paths and each has
-     * its own fallback to the client's raw score: OVERALL through the grade_update() in
-     * ingest(), PERITEM through apply_one().
+     * Turning grading on starts recording from that moment; nothing is recovered from
+     * before it (DEC-126-01).
      *
      * @param int $grademodel The grade model to exercise.
      * @dataProvider grading_disabled_models_provider
      */
-    public function test_switching_grading_on_mid_session_produces_no_grade(int $grademodel): void {
+    public function test_switching_grading_on_starts_recording_from_that_moment(int $grademodel): void {
         global $DB;
         [$instance, $student] = $this->create_activity_with_student([
             'gradeenabled' => 1,
@@ -460,47 +647,43 @@ final class track_test extends advanced_testcase {
         $instance = $DB->get_record('exelearning', ['id' => $instance->id], '*', MUST_EXIST);
         exelearning_sync_grade_items($instance->id);
 
-        $payload = [
-            'session'    => 'sessOpenTab',
+        $payload = fn(string $session, float $pct) => [
+            'session'    => $session,
             'cmi'        => [
-                'cmi.core.score.raw'     => '95',
+                'cmi.core.score.raw'     => (string) $pct,
                 'cmi.core.score.max'     => '100',
                 'cmi.core.lesson_status' => 'completed',
             ],
             'itemscores' => [
-                $objectid => ['scorepct' => 95.0, 'weighted' => 100.0, 'title' => 'A'],
+                $objectid => ['scorepct' => $pct, 'weighted' => 100.0, 'title' => 'A'],
             ],
         ];
 
-        // POST #1, grading off.
-        track::ingest($instance, $course, $cm, $student->id, $payload, false);
+        // While off: nothing.
+        track::ingest($instance, $course, $cm, $student->id, $payload('sessWhileOff', 40.0), false);
+        $this->assertFalse($DB->record_exists('exelearning_attempt', [
+            'exelearningid' => $instance->id, 'userid' => $student->id,
+        ]));
 
-        // The teacher enables grading. The learner does NOT reload, so the next
-        // autocommit arrives on the same session token carrying the same accumulated map.
+        // The teacher enables grading. The learner reloads, so a fresh session token.
         $DB->set_field('exelearning', 'gradeenabled', 1, ['id' => $instance->id]);
         $instance = $DB->get_record('exelearning', ['id' => $instance->id], '*', MUST_EXIST);
         exelearning_sync_grade_items($instance->id);
-        track::ingest($instance, $course, $cm, $student->id, $payload, false);
+        track::ingest($instance, $course, $cm, $student->id, $payload('sessAfterOn', 90.0), false);
 
-        // The session keeps its single, ungraded attempt: no second attempt was minted
-        // for the re-sent scores to land in.
+        // From here on it records normally, and the 40 earned while ungraded is gone.
         $rows = $DB->get_records('exelearning_attempt', [
             'exelearningid' => $instance->id, 'userid' => $student->id,
         ]);
-        $this->assertNotEmpty($rows);
+        $this->assertNotEmpty($rows, 'work done after the switch must be recorded');
         foreach ($rows as $row) {
-            $this->assertSame(1, (int) $row->attempt, 'The session must not be split');
-            $this->assertSame(0, (int) $row->gradable, 'Nothing from this session may become gradable');
+            $this->assertSame(1, (int) $row->attempt, 'the ungraded period minted no attempt');
         }
-
-        // And nothing reaches the gradebook, which is the guarantee that matters.
-        $grades = grade_get_grades($instance->course, 'mod', 'exelearning', $instance->id, $student->id);
-        foreach ($grades->items as $itemnumber => $item) {
-            $this->assertNull(
-                $item->grades[$student->id]->grade ?? null,
-                "Item {$itemnumber} must carry no grade from the ungraded period"
-            );
-        }
+        $overall = $DB->get_record('exelearning_attempt', [
+            'exelearningid' => $instance->id, 'userid' => $student->id, 'itemnumber' => 0,
+        ]);
+        $this->assertNotFalse($overall);
+        $this->assertEqualsWithDelta(90.0, (float) $overall->rawscore, 0.01);
     }
 
     /**
@@ -559,26 +742,18 @@ final class track_test extends advanced_testcase {
     }
 
     /**
-     * The mirror direction: once a session has written anything while the activity was
-     * ungraded, the WHOLE attempt is completion-only — every row of it, not just the one
-     * being written (DEC-124-03).
+     * Turning grading off stops recording; what was earned while it was on stays
+     * (DEC-126-01).
      *
-     * A mixed attempt is not a cosmetic inconsistency; it breaks three things at once.
-     * count_user_attempts() counts an attempt as used if ANY of its rows is gradable, so a
-     * mixed attempt keeps charging maxattempt in PERITEM while an OVERALL one stops — the
-     * very asymmetry between grade models this decision exists to remove. The surviving
-     * gradable row can be republished when grading returns. And it corrupts the
-     * inheritance itself: a later write asks the attempt for its gradability, and with a
-     * mixed attempt the answer depends on which row the database happens to return first.
-     *
-     * PERITEM is where it shows, because it is the model that keeps itemnumber > 0 rows
-     * the ungraded POST never touches: with the mappings soft-deleted the objectid filter
-     * empties itemscores, apply_one() does not run, and only the overall row is rewritten.
+     * The mirror of the case above, and the reason the previous contract's
+     * "poison the whole attempt" rule is gone: a mark earned while the activity was
+     * graded was legitimately earned, and the switch going off later does not make it
+     * retrospectively invalid. It just means nothing more is written.
      *
      * @param int $grademodel The grade model to exercise.
      * @dataProvider grading_disabled_models_provider
      */
-    public function test_switching_grading_off_mid_session_takes_the_whole_attempt_down(
+    public function test_switching_grading_off_stops_recording_and_keeps_what_was_earned(
         int $grademodel
     ): void {
         global $DB;
@@ -590,7 +765,6 @@ final class track_test extends advanced_testcase {
         [$course, $cm] = $this->course_and_cm($instance);
         $objectid = $this->objectid_for($instance, 1);
 
-        // The accumulated client map, sent identically on every POST of this tab.
         $payload = fn(string $raw, float $pct) => [
             'session'    => 'sessFlipOff',
             'cmi'        => [
@@ -603,70 +777,42 @@ final class track_test extends advanced_testcase {
             ],
         ];
 
-        // Graded work first: this writes the overall row AND the per-iDevice row.
+        // Graded work first.
         track::ingest($instance, $course, $cm, $student->id, $payload('80', 80.0), false);
-        $this->assertGreaterThan(0, $DB->count_records('exelearning_attempt', [
-            'exelearningid' => $instance->id, 'userid' => $student->id, 'gradable' => 1,
-        ]));
+        $before = $DB->get_records('exelearning_attempt', [
+            'exelearningid' => $instance->id, 'userid' => $student->id,
+        ]);
+        $this->assertNotEmpty($before);
 
-        // The teacher makes the activity a plain resource; the learner does not reload.
+        // The teacher makes the activity a plain resource; the learner does not reload
+        // and keeps submitting.
         $DB->set_field('exelearning', 'gradeenabled', 0, ['id' => $instance->id]);
         $instance = $DB->get_record('exelearning', ['id' => $instance->id], '*', MUST_EXIST);
         exelearning_sync_grade_items($instance->id);
-        track::ingest($instance, $course, $cm, $student->id, $payload('95', 95.0), false);
+        $result = track::ingest($instance, $course, $cm, $student->id, $payload('95', 95.0), false);
+        $this->assertTrue($result['noop']);
 
-        // EVERY row of the attempt is down, including the per-iDevice one this POST never
-        // touched.
-        $rows = $DB->get_records('exelearning_attempt', [
-            'exelearningid' => $instance->id, 'userid' => $student->id, 'attempt' => 1,
+        // The 95 was not recorded, and the 80 is untouched.
+        $after = $DB->get_records('exelearning_attempt', [
+            'exelearningid' => $instance->id, 'userid' => $student->id,
         ]);
-        $this->assertNotEmpty($rows);
-        foreach ($rows as $row) {
-            $this->assertSame(
-                0,
-                (int) $row->gradable,
-                "itemnumber {$row->itemnumber} must have been taken down with the attempt"
-            );
-        }
-
-        // So the attempt stops counting against maxattempt, in BOTH models.
-        $this->assertSame(0, \mod_exelearning\local\attempts::count_user_attempts(
-            (int) $instance->id,
-            (int) $student->id
-        ));
-
-        // And grading coming back on republishes nothing from it: the session is spent.
-        $DB->set_field('exelearning', 'gradeenabled', 1, ['id' => $instance->id]);
-        $instance = $DB->get_record('exelearning', ['id' => $instance->id], '*', MUST_EXIST);
-        exelearning_sync_grade_items($instance->id);
-        track::ingest($instance, $course, $cm, $student->id, $payload('95', 95.0), false);
-
-        $rows = $DB->get_records('exelearning_attempt', [
-            'exelearningid' => $instance->id, 'userid' => $student->id, 'attempt' => 1,
+        $this->assertSame(count($before), count($after), 'the ungraded POST created no rows');
+        $overall = $DB->get_record('exelearning_attempt', [
+            'exelearningid' => $instance->id, 'userid' => $student->id, 'itemnumber' => 0,
         ]);
-        foreach ($rows as $row) {
-            $this->assertSame(0, (int) $row->gradable, 'A spent session cannot come back');
-        }
-        $grades = grade_get_grades($instance->course, 'mod', 'exelearning', $instance->id, $student->id);
-        foreach ($grades->items as $itemnumber => $item) {
-            $this->assertNull(
-                $item->grades[$student->id]->grade ?? null,
-                "Item {$itemnumber} must carry no grade from a session that crossed the switch"
-            );
-        }
+        $this->assertEqualsWithDelta(80.0, (float) $overall->rawscore, 0.01, 'the earned mark must survive');
     }
 
     /**
-     * Work done while the activity was ungraded does not consume maxattempt
-     * (DEC-124-03).
+     * Work done while the activity was ungraded cannot consume maxattempt, because it
+     * creates no attempt at all (DEC-126-01).
      *
      * maxattempt is a grading control — mod_form.php disables it with the rest of the
-     * grade settings when the activity is not graded — so charging it for work the
-     * activity itself declared to be outside assessment produces a state with no way
-     * out: at maxattempt = 1 the learner reaches the limit having never had a gradable
-     * attempt, and can never be graded at all.
+     * grade settings when the activity is not graded — so charging it for work done
+     * outside assessment would produce a state with no way out: at maxattempt = 1 the
+     * learner reaches the limit having never had a gradable attempt.
      */
-    public function test_ungraded_attempts_do_not_consume_maxattempt(): void {
+    public function test_use_while_ungraded_does_not_consume_maxattempt(): void {
         global $DB;
         [$instance, $student] = $this->create_activity_with_student([
             'gradeenabled' => 0,
@@ -675,22 +821,25 @@ final class track_test extends advanced_testcase {
         ]);
         [$course, $cm] = $this->course_and_cm($instance);
 
-        // The learner uses the activity while it is a plain resource: one attempt, but
-        // an ungraded one.
+        // The learner uses the activity while it is a plain resource.
         track::ingest($instance, $course, $cm, $student->id, [
             'session' => 'sessUngradedTry',
             'cmi'     => ['cmi.core.score.raw' => '40', 'cmi.core.score.max' => '100'],
         ], false);
-        $this->assertTrue($DB->record_exists('exelearning_attempt', [
-            'exelearningid' => $instance->id, 'userid' => $student->id, 'gradable' => 0,
+        $this->assertFalse($DB->record_exists('exelearning_attempt', [
+            'exelearningid' => $instance->id, 'userid' => $student->id,
         ]));
+        $this->assertSame(0, \mod_exelearning\local\attempts::count_user_attempts(
+            (int) $instance->id,
+            (int) $student->id
+        ));
 
         // The teacher turns the activity into a graded one.
         $DB->set_field('exelearning', 'gradeenabled', 1, ['id' => $instance->id]);
         $instance = $DB->get_record('exelearning', ['id' => $instance->id], '*', MUST_EXIST);
         exelearning_sync_grade_items($instance->id);
 
-        // A fresh session must still be allowed: the ungraded attempt did not count.
+        // The learner still has their attempt.
         $result = track::ingest($instance, $course, $cm, $student->id, [
             'session' => 'sessFirstGradedTry',
             'cmi'     => ['cmi.core.score.raw' => '90', 'cmi.core.score.max' => '100'],
@@ -716,6 +865,7 @@ final class track_test extends advanced_testcase {
         ];
     }
 
+
     /**
      * Two ingest() calls for the same user with different session tokens allocate
      * distinct, gap-free attempt numbers (1 then 2). The serializing per-(instance,
@@ -723,6 +873,59 @@ final class track_test extends advanced_testcase {
      * concurrent interleaving (the race the lock prevents) is not reproducible in
      * single-threaded PHPUnit, so this is the functional-equivalence guard.
      */
+    /**
+     * With the master grading switch off (DEC-13-07), ingest() writes nothing.
+     *
+     * Without the guard, gradeenabled=0 leaves the instance with no grade items, the
+     * registered-objectid filter empties itemscores, the server-side recompute never
+     * runs — and ingest falls back to trusting the CLIENT's cmi.core.score.raw,
+     * writing attempt rows, gradebook updates and lifecycle events for an activity
+     * its teacher configured as ungraded. The xAPI channel has had this guard since
+     * its first version; the SCORM channel was missing it.
+     */
+    public function test_ingest_with_grading_disabled_writes_nothing(): void {
+        global $DB;
+        [$instance, $student] = $this->create_activity_with_student(['gradeenabled' => 0]);
+        [$course, $cm] = $this->course_and_cm($instance);
+
+        $payload = [
+            'session' => 'sessOff',
+            'cmi' => [
+                // A corruptible client-side value: nothing may trust it.
+                'cmi.core.score.raw' => '95',
+                'cmi.core.score.max' => '100',
+                'cmi.core.lesson_status' => 'passed',
+            ],
+        ];
+
+        $result = track::ingest($instance, $course, $cm, $student->id, $payload, false);
+
+        $this->assertTrue($result['ok']);
+        $this->assertTrue($result['noop']);
+        $this->assertArrayNotHasKey('rawscore', $result);
+        // No attempt rows, no gradebook column, no events were produced.
+        $this->assertFalse($DB->record_exists('exelearning_attempt', [
+            'exelearningid' => $instance->id, 'userid' => $student->id,
+        ]));
+        $grades = grade_get_grades($instance->course, 'mod', 'exelearning', $instance->id, $student->id);
+        $this->assertSame([], $grades->items);
+    }
+
+    /**
+     * The grading guard sits after preview handling: preview keeps its own contract.
+     */
+    public function test_preview_acknowledges_even_with_grading_disabled(): void {
+        [$instance, $student] = $this->create_activity_with_student(['gradeenabled' => 0]);
+        [$course, $cm] = $this->course_and_cm($instance);
+
+        $result = track::ingest($instance, $course, $cm, $student->id, [
+            'cmi' => ['cmi.core.score.raw' => '80', 'cmi.core.score.max' => '100'],
+        ], true);
+
+        $this->assertTrue($result['ok']);
+        $this->assertSame('preview', $result['mode']);
+    }
+
     public function test_ingest_two_sessions_allocate_distinct_attempts(): void {
         global $DB;
         [$instance, $student] = $this->create_activity_with_student();
