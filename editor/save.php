@@ -51,7 +51,7 @@ exelearning_require_embedded_editor_enabled();
 header('Content-Type: application/json; charset=utf-8');
 
 $newpackage = null;
-$newrevision = (int)$exelearning->revision + 1;
+$lock = null;
 
 try {
     if (empty($_FILES['package'])) {
@@ -62,6 +62,13 @@ try {
     if ((int)$uploadedfile['error'] !== UPLOAD_ERR_OK) {
         throw new moodle_exception('uploadproblem', 'error');
     }
+    $lock = \mod_exelearning\local\package_manager::get_package_lock((int) $exelearning->id);
+    if (!$lock) {
+        throw new moodle_exception('locktimeout');
+    }
+    // The viewer may have refreshed the runtime since this request loaded the row.
+    $exelearning = $DB->get_record('exelearning', ['id' => $cm->instance], '*', MUST_EXIST);
+    $newrevision = (int) $exelearning->revision + 1;
     $fs = get_file_storage();
     $defaultname = 'package.elpx';
 
@@ -151,4 +158,8 @@ try {
         'success' => false,
         'error' => get_string('error'),
     ]);
+} finally {
+    if ($lock) {
+        $lock->release();
+    }
 }

@@ -27,7 +27,10 @@ and [#126](https://github.com/exelearning/moodle-mod_exelearning/pull/126).
 - An existing extracted activity with outdated runtime files is rebuilt into a new
   validated revision when viewed. The new URL invalidates browser caches. Tests cover
   unchanged packages, concurrent stale viewers, missing content/source, extraction
-  failure and preservation of grade mappings and attempt history.
+  failure and preservation of grade mappings and attempt history. Viewer refreshes,
+  form updates and editor saves share a package lock from revision allocation through
+  activation, pruning and grade synchronization. Contention and failed-save tests
+  verify that another writer cannot overwrite the staged revision.
 - Grading disabled means no new attempts, grades or events (DEC-126-01). Tests retain
   the exclusion of historical ungraded sessions after upgrade in both grade models.
 - `tests/js/scorm-runtime-integration.test.js` executes the vendored wrapper/runtime
@@ -54,9 +57,35 @@ plugin directory, which also contains its development dependencies. PHPCS must u
 `--standard=moodle` on changed PHP files.
 
 For live package controls and gradebook results, use the pinned upstream checkout's
-`test/fixtures/grading/build.ts` producer and its Playwright live `exelearning-matrix`
+`scripts/build-grading-catalogue.ts` producer and its Playwright live `exelearning-matrix`
 lane. The plugin's VM tests execute the runtime contract; live tests additionally
 exercise exported iDevices, iframe delivery, authenticated tracking and Moodle grades.
+
+## Validation evidence
+
+Local validation on Moodle 5.0.7, PHP 8.3.15 and MariaDB 12.3.3 passed the full
+381-test suite (1503 assertions). After the final shared-lock change, the affected
+package/form tests passed again: 37 tests, 149 assertions. JavaScript passed all 70
+tests. PHP style checks, version checks and architecture checks passed. PHPUnit
+reported 67 existing metadata deprecations, with no errors or failures.
+
+The live browser matrix uses hand-computed results and checks each item and the
+actual Moodle gradebook. Its final browser/CI results are recorded on PR #105.
+
+The upstream catalogue's original M5 fixture is a historical malformed-content
+case: its old trueorfalse template has 15 opening and 14 closing divs, nesting the
+following dragdrop inside it before Moodle sees the ZIP. Current production
+`renderView()` has the #2307 fix. For the current-editor M5 check, regenerate that
+stored `htmlView` with the unmodified current renderer and export with
+`ElpxExporter`, retaining the same shared block, settings and expected grade 70.
+The validated input provenance is:
+
+- Upstream commit: `37922ad8586bb38974a6c32208ef940a1ea680fb`.
+- Original ZIP SHA-256: `4365faac684d9a24b025bb28ba1842aec69585c036cf277bdafbbe54cb94d224`.
+- Current-renderer ZIP SHA-256: `07f1e97552a2124cd387b950a17031348963a28bc7a3d6564033094989fa3428`.
+
+The original fixture's failure is retained as diagnostic evidence; it is not
+counted as a passing current-editor test.
 
 ## Preserved limits
 

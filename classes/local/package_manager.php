@@ -44,6 +44,20 @@ use stdClass;
  */
 final class package_manager {
     /**
+     * Serializes package revision allocation, extraction and activation for an instance.
+     *
+     * Viewer refreshes, form updates and editor saves must hold the same lock until
+     * pruning and grade synchronization finish, so none can consume another's staged ZIP.
+     *
+     * @param int $instanceid Activity instance id.
+     * @return \core\lock\lock|null Acquired lock, or null when another writer is busy.
+     */
+    public static function get_package_lock(int $instanceid): ?\core\lock\lock {
+        $factory = \core\lock\lock_config::get_lock_factory('mod_exelearning');
+        return $factory->get_lock('package_' . $instanceid, 5) ?: null;
+    }
+
+    /**
      * Refreshes extracted packages after the bundled SCORM runtime changes (DEC-105-01).
      *
      * Existing content is a stored copy, so replacing plugin assets alone does not
@@ -60,8 +74,7 @@ final class package_manager {
         if (self::runtime_is_current($contextid, (int) $instance->revision)) {
             return;
         }
-        $factory = \core\lock\lock_config::get_lock_factory('mod_exelearning');
-        $lock = $factory->get_lock('runtime_' . $instance->id, 5);
+        $lock = self::get_package_lock((int) $instance->id);
         if (!$lock) {
             return;
         }
@@ -90,6 +103,8 @@ final class package_manager {
                 // back unrelated settings from a viewer's earlier instance snapshot.
                 self::store_and_activate_revision($contextid, $current, (int) $current->revision + 1);
                 $instance->revision = (int) $current->revision;
+                \exelearning_sync_grade_items((int) $instance->id, $contextid);
+                $instance->gradesyncrev = $instance->revision;
             } catch (\moodle_exception $e) {
                 if ($e->errorcode !== 'migrateextractfailed') {
                     throw $e;
