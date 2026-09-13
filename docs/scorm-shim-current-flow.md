@@ -1,96 +1,64 @@
-# SCORM 1.2 shim — current tracking flow
+# SCORM 1.2 tracking flow
 
-> Status: **describes the code as shipped today**. Tracking in `mod_exelearning` is
-> **100% SCORM 1.2 shim** (plus the mobile web service); the xAPI channel that briefly
-> ran alongside it was removed in DEC-122-01.
-> Decision trail (Spanish): `research/decisiones/adr/` — DEC-0-03 (SCORM 1.2 standard),
-> DEC-0-06 (preview/grading), DEC-0-07 (attempts), DEC-0-08 (grade model), DEC-0-10
-> (completion), DEC-5-01 (objectid routing), DEC-6-01 (overall recompute), DEC-13-07
-> (master grading switch).
+The plugin supplies one synchronous `window.API` in the Moodle viewer. All package
+pages share it. Browser tracking uses SCORM 1.2 only; the mobile service enters the
+same server ingestion pipeline (DEC-122-01).
 
-## Why a shim
+## Package and host runtime
 
-Published eXeLearning v4 iDevices call the **pipwerks** SCORM wrapper, which runs
-`findAPI()` walking `window.parent` for an object exposing `LMSInitialize`. The plugin
-supplies that object from the **parent** page (`view.php`) so the package can report
-scores without being a real SCORM package. eXeLearning v4 only calls
-`pipwerks.SCORM.init()` if the loader is injected into each HTML `<head>`; the plugin does
-that in `exelearning_inject_scorm_loader()` (delegador en `lib.php`) →
-`\mod_exelearning\local\scorm\scorm_injector::inject()` (DEC-71-01) — see the "Pipwerks lazy"
-note in the root `AGENTS.md`.
+`package_manager::extract_stored()` installs the plugin's complete runtime pair,
+regardless of which runtime the uploaded archive contained (DEC-105-01).
+`assets/scorm/SOURCE` identifies the immutable upstream commit, version stamp and
+both file digests. The runtime is generated with upstream's exporter assembler,
+without local changes.
 
-## Components
+`scorm_injector::inject()` loads that pair once and opens
+`exeScorm12.session.open({ ownsLifecycle: false })` (DEC-105-02). It removes an
+uploaded SCORM export's `loadPage()` body handler and `exe-scorm`/`exe-scorm12`
+classes. This keeps each iframe page from finishing the shared host session.
+The iframe keeps the permissions documented in [TRACKING](TRACKING.md).
 
-| Layer | Where | Role |
-|---|---|---|
-| Package delivery | `view.php:569-579` | Serves the extracted package in a same-origin `<iframe>` from `pluginfile.php/.../content/<revision>/index.html`. Sandbox: `allow-scripts allow-same-origin allow-popups allow-forms allow-popups-to-escape-sandbox` (no `allow-top-navigation`, no `allow-modals`). |
-| SCORM API shim | `view.php:380-530` | Inline `window.API` in the parent window. Buffers CMI pairs, debounced auto-commit, POSTs to `track.php`. |
-| objectid capture | `view.php:430-461` | On each `cmi.suspend_data` write, reads the iframe DOM (`.idevice_node` ids) to map the page-local index `N` to the stable **objectid** (DEC-5-01 / RIE-007). |
-| Tracking endpoint | `track.php` | Validates the request, routes per-iDevice scores, records attempts, pushes grades, recomputes completion. |
-| Domain services | `classes/local/track.php`, `attempts.php`, `package.php` | Reusable parsing/routing/aggregation extracted out of the endpoint. |
-| Data model | `db/install.xml` | `exelearning`, `exelearning_grade_item`, `exelearning_attempt`. |
+## Browser to gradebook
 
-## The `window.API` shim (`view.php`)
+1. `view.php` creates the API from `js/scorm_tracker.js` before loading the iframe.
+   Its session token groups all commits of this viewer load into one attempt.
+2. `LMSSetValue` buffers CMI fields. On `cmi.suspend_data`, the tracker captures
+   per-iDevice scores by stable objectid while the scoring page is available.
+3. Versioned `exe12/1` records carry their objectids directly. Legacy records use
+   the current iframe DOM to resolve page-local positions, with stale-slot guards.
+   Non-evaluable records and empty score fields do not create per-item grades.
+4. `LMSCommit` sends the buffered state immediately; a 500 ms autocommit also
+   persists critical changes. The host flushes on `beforeunload`. Failed HTTP
+   writes keep the buffer dirty for the next send.
+5. `track.php` validates login, activity permissions and the sesskey in the JSON
+   body, then calls `track::ingest()`. `save_track` uses the same ingestion service.
+6. The service acknowledges preview and ungraded activity requests without writes
+   (DEC-0-06, DEC-126-01). Scored work is serialized per activity/user, constrained
+   by the attempt limit, clamped and filtered to registered objectids.
+7. Per-item attempts are recorded; the overall is recomputed from reported item
+   scores and their weights. PERITEM publishes only itemnumber 1..N; OVERALL
+   publishes only itemnumber 0. Completion and lifecycle events follow the shared
+   ingestion result.
 
-- Implements SCORM 1.2: `LMSInitialize`, `LMSFinish`, `LMSCommit`, `LMSGetValue`,
-  `LMSSetValue`, `LMSGetLastError`, … (`view.php:498-523`).
-- A random **session token** per page load (`random_string(20)`, `view.php:531`) groups all
-  auto-commits of one page view into a single attempt (DEC-0-07).
-- **Auto-commit** 500 ms after the last `LMSSetValue` of a critical key, plus a synchronous
-  send on `beforeunload` so closing the tab does not drop a grade (`view.php:493-528`).
-- **Per-iDevice objectid routing** (`captureItemScores`/`resolveObjectMap`,
-  `view.php:430-461`): only the iDevice scored on the currently loaded page resolves
-  against the DOM, which is what defeats the multi-page `suspend_data` collision (DEC-5-01).
-- POST body: `{ id: <cmid>, session, cmi, itemscores }` where
-  `itemscores = { objectid: { scorepct(0..100), weighted, title } }` (`view.php:465`).
+## Boundaries
 
-## The endpoint (`track.php`)
+Iframe navigation retains the parent API's suspend data and accumulated scores.
+Reloading the entire Moodle viewer starts a fresh session token and CMI buffer;
+there is no persistent suspend-data hydration across viewer reloads. Attempts and
+published grades already stored in Moodle remain intact.
 
-1. `AJAX_SCRIPT`; `id` (cmid) required; the JSON body is decoded and its **session key
-   confirmed** with `tracking_endpoint::require_body_sesskey()` (`track.php:41-51`). The
-   key travels in the body, not the query string, so it is not written to access logs or
-   proxy logs (SEC-04).
-2. Resolve `cm` / `course` / instance; `require_login` (`track.php:53-57`).
-3. **Authorization** (`track.php:51-57`): `?mode=preview` is honoured **only** with
-   `moodle/course:manageactivities` (DEC-0-06); otherwise
-   `require_capability('mod/exelearning:savetrack')`. A student forcing `preview` falls
-   back to grading.
-4. Parse JSON body; read `cmi.core.score.raw|max` and `cmi.core.lesson_status`
-   (`track.php:68-75`).
-5. **Normalize + clamp** the score to the instance `grademax`/`grademin` so an out-of-range
-   CMI value cannot be persisted (`track.php:83-93`).
-6. Preview short-circuits **before** any gradebook write (`track.php:96-99`).
-7. **Resolve attempt** number from the session token (`attempts::resolve_attempt_number`,
-   `track.php:150-154`) and enforce `maxattempt` (`track.php:158-175`).
-8. **Per-iDevice** (`itemnumber > 0`): preferred `track::apply_item_scores()` by stable
-   objectid (DEC-5-01); legacy fallback `track::apply_legacy_peritem()` by page-local `N`
-   (`track.php:179-200`).
-9. **Overall** (`itemnumber = 0`): when an objectid map is present, recompute the overall
-   from per-item scores via `track::recompute_overall_pct()` instead of trusting
-   `cmi.core.score.raw` (DEC-6-01, `track.php:210-229`); record it
-   (`attempts::record_item`) and aggregate across attempts by `grademethod`
-   (`attempts::aggregate_scaled`, DEC-0-07).
-10. **Publish** with `grade_update('mod/exelearning', …, itemnumber=0, …)`; in PERITEM mode
-    the overall item is `hidden=1` and exists only so Moodle's `completionpassgrade` rule
-    can evaluate pass/fail (DEC-0-08, `track.php:261-273`).
-11. **Completion**: force re-evaluation with `completion_info::update_state()` (DEC-0-10,
-    `track.php:278-281`).
+The plugin overall uses the **reported** item map. It does not publish a zero for
+an untouched iDevice or derive a package-wide denominator from browser statements.
+Upstream's runtime counts registered, untouched evaluable activities as zero once
+another activity has a score, so partial totals can differ. For example, 50% on a
+60-weight item with its 40-weight peer untouched is 50 in the plugin and 30 in the
+runtime. A package-wide plugin denominator requires author-owned weights parsed
+from `content.xml`; see [GRADEBOOK](GRADEBOOK.md).
 
-## Data model
+Runtime replacement does not rewrite the `common.js` or iDevice scripts embedded
+in older packages. Upstream producer fixes require content exported with the
+corrected eXeLearning version.
 
-- **`exelearning`** — instance config incl. `gradeenabled` (DEC-13-07 master grading
-  switch: 1=graded, 0=plain resource), `grademax/grademin/gradepass`, `grademethod`
-  (0 highest…4 lowest), `grademodel` (0 overall / 1 peritem), `maxattempt`, `reviewmode`.
-- **`exelearning_grade_item`** — one row per gradable iDevice: `objectid`
-  (`<odeIdeviceId>`), `itemnumber` (0..100), `idevicetype`, `pageid`, `contenthash`,
-  `deleted`. UNIQUE `(exelearningid, itemnumber)` and `(exelearningid, objectid)`.
-- **`exelearning_attempt`** — **flat** table (DEC-0-07), one row per
-  `(exelearningid, userid, attempt, itemnumber)` with `rawscore`, `maxscore`,
-  `scaledscore`, `status`, `sessiontoken`. `itemnumber=0` is the overall.
-
-## Trust posture today
-
-The package is **not** trusted to assert identity or ownership: the endpoint uses the
-authenticated Moodle session/`$USER`, requires `sesskey` + capability, routes only to
-objectids that already exist in `exelearning_grade_item` for that instance, and clamps the
-score to the configured range. See `tracking-architecture.md` for the whole picture.
+New work while grading is disabled cannot satisfy status completion because no
+attempt is recorded. Historical attempts remain available to completion, and
+historical `gradable = 0` rows remain excluded from grades and attempt limits.

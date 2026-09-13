@@ -25,8 +25,9 @@
 // get() reached straight into the opaque parent, threw, init() never activated the
 // connection, and LMSSetValue/LMSCommit became no-ops -> no attempt rows were written.
 //
-// These tests lock in the corrected behaviour: check the current window first, fall back
-// to a same-origin ancestor (legacy mode), and never let an opaque ancestor abort lookup.
+// The pristine upstream wrapper now checks the current window first and falls back to
+// a same-origin ancestor. Secure mode requires the bridge to install window.API before
+// the wrapper loads; without it, ancestor discovery still raises SecurityError.
 //
 // The wrapper is a classic browser script (top-level `var pipwerks = {}`, no module
 // exports), so it is loaded via new Function() with a fully controllable `window`, letting
@@ -116,14 +117,13 @@ describe('vendored pipwerks API.get (secure-mode regression)', () => {
         expect(got).toBe(localApi);
     });
 
-    it('returns null (never throws) when no API is reachable and the parent is opaque', () => {
+    it('requires the local bridge API when the parent is opaque', () => {
         const win = { parent: makeOpaqueFrame(), document: {} };   // no local API
 
         const pipwerks = loadPipwerks(win);
 
-        let got = 'unset';
-        expect(() => { got = pipwerks.SCORM.API.get(); }).not.toThrow();
-        expect(got == null).toBe(true);
+        expect(() => pipwerks.SCORM.API.get()).toThrow('SecurityError');
+        expect(pipwerks.SCORM.connection.isActive).toBe(false);
     });
 
     it('still walks up to a same-origin parent when there is no local API (legacy mode)', () => {

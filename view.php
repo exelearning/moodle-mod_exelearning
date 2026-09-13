@@ -76,6 +76,7 @@ if ($showeditorbutton) {
 }
 
 $fs = get_file_storage();
+\mod_exelearning\local\package_manager::refresh_runtime($context->id, $exelearning);
 $mainfile = $fs->get_file(
     $context->id,
     'mod_exelearning',

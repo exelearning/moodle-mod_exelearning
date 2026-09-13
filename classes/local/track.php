@@ -22,9 +22,10 @@ namespace mod_exelearning\local;
  * Holds the per-iDevice routing logic so it can be unit-tested without invoking
  * the AJAX script. Two concerns live here:
  *
- *  - {@see self::parse_suspend_data()} decodes eXeLearning v4's `cmi.suspend_data`
- *    string. It is the single PHP source of truth for that format and mirrors the
- *    JavaScript parser in the `view.php` SCORM shim.
+ *  - {@see self::parse_suspend_data()} decodes eXeLearning's `cmi.suspend_data`
+ *    string — both the versioned `exe12/` payload written by the SCORM 1.2 runtime
+ *    and the legacy unversioned lines. It is the single PHP source of truth for both
+ *    formats and mirrors the JavaScript parser in the `view.php` SCORM shim.
  *  - {@see self::apply_item_scores()} routes per-iDevice scores to the gradebook by
  *    the stable `objectid` captured client-side (DEC-5-01 / RIE-007), instead of by
  *    the page-local index N the producer emits — which collides across pages.
@@ -34,6 +35,21 @@ namespace mod_exelearning\local;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class track {
+    /** Header of the versioned cmi.suspend_data payload written by eXeLearning's SCORM 1.2 runtime. */
+    private const EXE12_PREFIX = 'exe12/';
+
+    /** Highest versioned-payload version this parser understands. */
+    private const EXE12_MAX_VERSION = 1;
+
+    /** Record separator inside the versioned payload. */
+    private const EXE12_RECORD_SEPARATOR = '|';
+
+    /** Field separator inside one versioned record. */
+    private const EXE12_FIELD_SEPARATOR = ';';
+
+    /** Bit 1 of a versioned record's flag field: the activity counts towards the score. */
+    private const EXE12_FLAG_EVALUABLE = 1;
+
     /**
      * Ingests a SCORM tracking payload: records the attempt, routes per-iDevice
      * scores and updates the gradebook + completion. Shared by the web `track.php`
@@ -97,6 +113,16 @@ class track {
             return ['ok' => true, 'mode' => 'preview', 'rawscore' => $score, 'status' => $status];
         }
 
+        // Master grading switch (DEC-13-07): with grading off the instance has no
+        // grade items, so the objectid filter below empties itemscores, the
+        // server-side recompute never runs, and ingest would fall through to trusting
+        // the CLIENT's cmi.core.score.raw — writing attempt rows, gradebook updates
+        // and lifecycle events for an activity its teacher configured as ungraded.
+        // An ungraded resource acknowledges without recording (DEC-126-01).
+        if (empty($exe->gradeenabled)) {
+            return ['ok' => true, 'noop' => true];
+        }
+
         // Per-iDevice routing: prefer the stable objectid map (DEC-5-01); fall back
         // to the page-local index from cmi.suspend_data only when none is supplied.
         $itemscores = (isset($payload['itemscores']) && is_array($payload['itemscores']))
@@ -114,14 +140,7 @@ class track {
         // grade. apply_item_scores() already ignores unknown objectids, but the
         // overall recompute below operates on the whole map, so filter here too — a
         // client must not be able to skew the overall by injecting extra objectids.
-        if ($itemscores !== []) {
-            $registered = array_flip(array_map('strval', self::registered_objectids($exe)));
-            $itemscores = array_filter(
-                $itemscores,
-                fn($key) => isset($registered[(string) $key]),
-                ARRAY_FILTER_USE_KEY
-            );
-        }
+        $itemscores = self::filter_registered_scores($exe, $itemscores);
         $suspend = $cmi['cmi.suspend_data'] ?? '';
         $peritem = is_string($suspend) ? self::parse_suspend_data($suspend) : [];
         if (is_string($suspend) && $suspend !== '' && $peritem === [] && $itemscores === []) {
@@ -130,6 +149,20 @@ class track {
                     . 'results could be parsed from it.',
                 DEBUG_DEVELOPER
             );
+        }
+        // A versioned `exe12/` payload names the objectid inside every record, so the
+        // server can route it by objectid exactly like a client-supplied map — no
+        // page-local index, no DOM, no collision. This matters when the client sent no
+        // map of its own: the mobile web service, or a shim that could not read the
+        // package iframe.
+        $fromsuspend = self::objectid_scores($peritem);
+        if ($fromsuspend !== []) {
+            if ($itemscores === []) {
+                $itemscores = self::filter_registered_scores($exe, $fromsuspend);
+            }
+            // Those entries are keyed by objectid, never by itemnumber: the page-local
+            // legacy fallback must never see them.
+            $peritem = [];
         }
 
         $grademethod = (int) ($exe->grademethod ?? attempts::GRADE_HIGHEST);
@@ -175,19 +208,11 @@ class track {
             ]) : false;
 
             // Attempt limit (DEC-0-07 phase 2): a fresh session over the cap is rejected.
-            // The attempt cap applies only while the activity is a graded one. It is a
-            // grading control — mod_form.php disables it with the rest of the grade
-            // settings when gradeenabled is off — and count_user_attempts() now counts
-            // gradable attempts only, so leaving it armed here would refuse a learner
-            // access to an UNGRADED activity on the strength of graded attempts they
-            // spent earlier (DEC-124-03).
-            //
-            // It also closes a bypass: with the cap armed while grading is off, the
-            // $sessionknown escape hatch below is the only thing that lets such a session
-            // write at all, and a session known from the ungraded period would then carry
-            // that exemption into a later gradable attempt.
+            // The cap only ever applies to a graded activity, and DEC-126-01 makes that
+            // true by construction: with grading off ingest() returned above, so no
+            // attempt was created and none was charged against the cap.
             $maxattempt = (int) ($exe->maxattempt ?? 0);
-            if ($maxattempt > 0 && !empty($exe->gradeenabled)) {
+            if ($maxattempt > 0) {
                 $sessionknown = ($sessiontoken !== '') && $DB->record_exists(
                     'exelearning_attempt',
                     ['exelearningid' => $exe->id, 'userid' => $userid, 'sessiontoken' => $sessiontoken]
@@ -231,11 +256,10 @@ class track {
             }
             $overallstatus = in_array($status, ['passed', 'failed', 'completed', 'incomplete'], true)
                     ? $status : 'completed';
-            // Marked completion-only when the activity is not graded (DEC-124-03). The
-            // row is still written — DEC-69-01's completion by status needs it — but its
-            // score never went through the server-side recompute (no registered
-            // objectids to recompute from), so it must not become a mark when grading
-            // comes back on.
+            // Always gradable: reaching here means the activity is graded (DEC-126-01).
+            // The flag itself stays because rows written by earlier versions, while the
+            // activity was ungraded, are in the database marked 0 and must keep being
+            // excluded from every aggregation.
             attempts::record_item(
                 $exe->id,
                 $userid,
@@ -245,18 +269,13 @@ class track {
                 $grademax,
                 $overallstatus,
                 $sessiontoken,
-                !empty($exe->gradeenabled)
+                true
             );
-            // With no GRADABLE overall history at all — every row for itemnumber 0 is
-            // completion-only (DEC-124-03) — aggregate_scaled() returns null, and the
-            // historical fallback below took $score, which is the client's
-            // cmi.core.score.raw, so taking it here would publish an unverified browser
-            // value in exactly the case where the server has decided none of the history
-            // counts: a learner holding a page open across a mid-session switch-on.
-            //
-            // Note this is not the ordinary first-POST case. record_item() runs above,
-            // so with grading on there is always at least one gradable row by the time
-            // this executes and the aggregation has something to return.
+            // A gradable row has just been written by record_item(), so the aggregation
+            // has something to return. The null branch is left as a floor: taking $score
+            // would publish the client's cmi.core.score.raw unverified, and a learner
+            // whose only stored history is completion-only rows from an older version
+            // must not be graded from it.
             $scaledoverall = attempts::aggregate_scaled($exe->id, $userid, 0, $grademethod);
             $hasgradablehistory = ($scaledoverall !== null);
             $finaloverall = $hasgradablehistory ? ($scaledoverall * $grademax) : $score;
@@ -264,30 +283,12 @@ class track {
             // Publish the aggregated overall grade ONLY in OVERALL mode (DEC-25-01): in
             // PERITEM the per-iDevice grades carry the gradebook.
             //
-            // And only while the master grading switch is on (DEC-13-07, DEC-124-02).
-            // With it off, exelearning_sync_grade_items() has deleted this instance's
-            // grade items — and grade_update() RECREATES a deleted item, so publishing
-            // here would resurrect the very column the teacher turned off. It would also
-            // publish the CLIENT's cmi.core.score.raw, because with no registered
-            // objectids there is nothing for the server-side recompute to work from.
-            //
-            // The attempt row above is still written, deliberately: DEC-69-01's
-            // completion by status reads it filtering on exelearningid, userid,
-            // itemnumber and status, never on gradeenabled, and mod_form.php does not
-            // gate that rule on the switch either. It is also the history DEC-13-07
-            // preserves so grading recomputes when the switch goes back on (DEC-124-01).
-            //
-            // apply_one()'s per-iDevice grade_update() needs no guard of its own: it
-            // routes by registered objectid (DEC-5-01), and with the switch off none is
-            // registered, so it never runs. A second check there would be dead code
-            // implying a path that does not exist — pinned by the peritem case of
-            // test_ingest_with_grading_disabled_records_attempt_but_publishes_no_grade.
+            // The master grading switch needs no check here: with it off ingest()
+            // returned at the top (DEC-126-01), which is what stops grade_update() from
+            // RECREATING the very column exelearning_sync_grade_items() deleted when the
+            // teacher turned grading off.
             $result = GRADE_UPDATE_OK;
-            if (
-                $grademodel === EXELEARNING_GRADEMODEL_OVERALL
-                && !empty($exe->gradeenabled)
-                && $hasgradablehistory
-            ) {
+            if ($grademodel === EXELEARNING_GRADEMODEL_OVERALL && $hasgradablehistory) {
                 $grade = (object) [
                     'userid'   => $userid,
                     'rawgrade' => $finaloverall,
@@ -413,22 +414,184 @@ class track {
     }
 
     /**
-     * Decodes an eXeLearning v4 `cmi.suspend_data` string into per-index results.
+     * Decodes an eXeLearning `cmi.suspend_data` string into per-iDevice results.
      *
-     * The producer (`public/app/common/common.js`) serialises one entry per scored
-     * iDevice as `{N}. "{title}"; {scoreLabel}: {S}%; {weightLabel}: {W}%`, joined
-     * by ".\t". N is the page-local DOM index of the iDevice (NOT our itemnumber);
-     * see DEC-5-01. The score/weight labels are localised, hence the `[^:]+` parts.
+     * Two producer formats reach this LMS and both are supported. The header selects
+     * the parser; nothing downstream re-sniffs the payload:
+     *
+     *  - the VERSIONED payload `exe12/1|{record}|{record}…` written by eXeLearning's
+     *    SCORM 1.2 runtime (core PR #2209 onwards, see
+     *    `public/app/common/scorm/scorm12/exe-scorm12-activities.js`). Every record
+     *    names its own activity id, so entries come back keyed by that stable
+     *    objectid and route straight through {@see self::apply_item_scores()};
+     *  - the LEGACY unversioned lines `{N}. "{title}"; {scoreLabel}: {S}%;
+     *    {weightLabel}: {W}%` joined by ".\t", written by every earlier release. N is
+     *    the page-local DOM index of the iDevice (NOT our itemnumber, and it collides
+     *    across pages; see DEC-5-01), so entries come back keyed by N and only the
+     *    client shim — which can see the loaded page — can resolve them safely.
+     *
+     * One representation serves both: each value carries `title`, `scorepct` and
+     * `weighted`, plus an `objectid` key on — and only on — an entry that knows its
+     * own identity. Callers branch on that key, never on the raw string. This mirrors
+     * the JavaScript parser in `js/scorm_tracker.js`.
      *
      * @param string $suspend Raw cmi.suspend_data value.
-     * @return array Map of page-local N (int) to ['title' => string, 'scorepct' => float,
-     *         'weighted' => float]. Empty when nothing parses.
+     * @return array Map of objectid (versioned) or page-local N (legacy) to
+     *         ['title' => string, 'scorepct' => float, 'weighted' => float,
+     *         'objectid' => string (versioned only)]. Empty when nothing parses.
      */
     public static function parse_suspend_data(string $suspend): array {
-        $peritem = [];
         if ($suspend === '') {
+            return [];
+        }
+        if (strpos($suspend, self::EXE12_PREFIX) === 0) {
+            return self::parse_exe12_payload($suspend);
+        }
+        return self::parse_legacy_suspend_data($suspend);
+    }
+
+    /**
+     * Parses the versioned `exe12/{version}` payload.
+     *
+     * Version handling is deliberately strict: an unreadable version tag, or one
+     * newer than {@see self::EXE12_MAX_VERSION}, yields an EMPTY map instead of a
+     * best-effort parse. A future revision may reorder or repurpose fields, and a
+     * silently misparsed field would publish a wrong grade — worse than publishing
+     * none, which merely leaves the item ungraded and visibly missing.
+     *
+     * @param string $suspend Raw value, already known to start with the header.
+     * @return array Map of objectid to the parsed entry. Empty when nothing parses.
+     */
+    private static function parse_exe12_payload(string $suspend): array {
+        $peritem = [];
+        $body = substr($suspend, strlen(self::EXE12_PREFIX));
+        $separator = strpos($body, self::EXE12_RECORD_SEPARATOR);
+        $versiontext = ($separator === false) ? $body : substr($body, 0, $separator);
+        if (!is_numeric($versiontext)) {
+            debugging(
+                'mod_exelearning: ignored a cmi.suspend_data payload with an unreadable version tag.',
+                DEBUG_DEVELOPER
+            );
             return $peritem;
         }
+        $version = (float) $versiontext;
+        if ($version < 1 || $version > self::EXE12_MAX_VERSION) {
+            debugging(
+                'mod_exelearning: ignored a cmi.suspend_data payload written by an unsupported runtime '
+                    . '(version ' . $versiontext . '); no per-iDevice score was read from it.',
+                DEBUG_DEVELOPER
+            );
+            return $peritem;
+        }
+        if ($separator === false) {
+            // Header only: a session that has registered nothing yet.
+            return $peritem;
+        }
+        $records = explode(self::EXE12_RECORD_SEPARATOR, substr($body, $separator + 1));
+        foreach ($records as $record) {
+            $entry = self::decode_exe12_record($record);
+            if ($entry !== null) {
+                $peritem[$entry['objectid']] = $entry;
+            }
+        }
+        return $peritem;
+    }
+
+    /**
+     * Decodes one record of the versioned payload.
+     *
+     * Layout (see `encodeRecord()` in exe-scorm12-activities.js), fields separated
+     * by ';':
+     *   [0] rawurlencoded activity id — the `.idevice_node` id, i.e. our objectid
+     *   [1] flags bitmask (1 evaluable, 2 completionRequired, 4 completed)
+     *   [2] answered  [3] total  [4] score  [5] weight  [6] minimumScore  [7] maximumScore
+     *
+     * The score is field [4] and is NEVER derived from answered/total: a real record
+     * reads `ide-a;7;0;4;100;25;0;100` — answered 0 of 4, score 100 — because an
+     * iDevice may report a score without reporting question counters. It is scaled
+     * into 0..100 with the record's own min/max window.
+     *
+     * Skipped, each on purpose:
+     *  - three-field records: migrated-but-unclaimed legacy entries
+     *    (`position;score;weight`) riding along in the payload. They name a page
+     *    position instead of an iDevice, and "unclaimed" means no live iDevice owns
+     *    them, so attributing them to whatever sits at that position would invent a
+     *    grade;
+     *  - records with no evaluable flag: the producer excludes them from
+     *    cmi.core.score.raw, so they must not reach a gradebook column either;
+     *  - records whose score field is empty: the activity has not produced a result
+     *    yet, which is not the same as scoring 0.
+     *
+     * @param string $record One encoded record.
+     * @return array|null ['title' => '', 'scorepct' => float, 'weighted' => float,
+     *         'objectid' => string], or null when the record is unusable.
+     */
+    private static function decode_exe12_record(string $record): ?array {
+        $fields = explode(self::EXE12_FIELD_SEPARATOR, $record);
+        if (count($fields) < 6) {
+            return null;
+        }
+        // PHP's rawurldecode() never fails, but the JS parser drops a record whose id
+        // has a malformed escape; reject the same ones so both sides agree.
+        if (preg_match('~%(?![0-9A-Fa-f]{2})~', $fields[0])) {
+            return null;
+        }
+        $objectid = rawurldecode($fields[0]);
+        if ($objectid === '') {
+            return null;
+        }
+        if (!is_numeric($fields[1])) {
+            return null;
+        }
+        $flags = (int) $fields[1];
+        if (($flags & self::EXE12_FLAG_EVALUABLE) === 0) {
+            return null;
+        }
+        if (!is_numeric($fields[4])) {
+            return null;
+        }
+        $score = (float) $fields[4];
+        $weight = is_numeric($fields[5]) ? (float) $fields[5] : 1.0;
+        if ($weight <= 0) {
+            $weight = 1.0;
+        }
+        $minimum = (isset($fields[6]) && is_numeric($fields[6])) ? (float) $fields[6] : 0.0;
+        $maximum = (isset($fields[7]) && is_numeric($fields[7])) ? (float) $fields[7] : 100.0;
+        // A degenerate range cannot normalise a score; fall back to a 100-wide
+        // window, exactly like the producer's normalize().
+        if ($maximum <= $minimum) {
+            $maximum = $minimum + 100.0;
+        }
+        return [
+            // The versioned format drops titles (they are the largest field in a
+            // 4096-character element and aggregation never needed them).
+            'title'    => '',
+            'scorepct' => max(0.0, min(100.0, (($score - $minimum) / ($maximum - $minimum)) * 100.0)),
+            'weighted' => $weight,
+            'objectid' => $objectid,
+        ];
+    }
+
+    /**
+     * Parses the legacy (unversioned) `cmi.suspend_data` lines.
+     *
+     * The producer (`public/app/common/common.js`) serialises one entry per scored
+     * iDevice as `{N}. "{title}"; {scoreLabel}: {S}%; {weightLabel}: {W}%`, joined by
+     * ".\t". N is the page-local DOM index of the iDevice (NOT our itemnumber); see
+     * DEC-5-01. The score/weight labels are localised, hence the `[^:]+` parts.
+     *
+     * Trailing `; {label}: {n}` groups after the weight are accepted and ignored: a
+     * writer that appends a labelled per-iDevice field (exelearning #2322 adds
+     * `; Estado: <0|1|2>`) must not make the record vanish from the gradebook. The
+     * group is not captured — nothing here reads it — and it has to be a labelled
+     * number, so a truncated or garbled line is still skipped. Mirrors the JS parser.
+     *
+     * @param string $suspend Raw cmi.suspend_data value.
+     * @return array Map of page-local N (int) to ['title' => string,
+     *         'scorepct' => float, 'weighted' => float]. Empty when nothing parses.
+     */
+    private static function parse_legacy_suspend_data(string $suspend): array {
+        $peritem = [];
         foreach (preg_split('~\.\t~', $suspend) as $line) {
             $line = trim($line);
             if ($line === '') {
@@ -440,7 +603,7 @@ class track {
             // parser in the view.php shim).
             if (
                 preg_match(
-                    '~^(\d+)\.\s"([^"]*)";\s[^:]+:\s([\d.,]+)%;\s[^:]+:\s([\d.,]+)%\.?$~',
+                    '~^(\d+)\.\s"([^"]*)";\s[^:]+:\s([\d.,]+)%;\s[^:]+:\s([\d.,]+)%(?:;\s[^:;]+:\s[\d.,]+%?)*\.?$~',
                     $line,
                     $m
                 )
@@ -455,6 +618,52 @@ class track {
             }
         }
         return $peritem;
+    }
+
+    /**
+     * Extracts the entries of a {@see self::parse_suspend_data()} result that carry
+     * their own stable objectid, re-keyed by it and ready for
+     * {@see self::apply_item_scores()}.
+     *
+     * Only the versioned `exe12/` format produces such entries; a legacy payload
+     * yields an empty array, which is what keeps it on the page-local fallback path.
+     *
+     * @param array $peritem Result of parse_suspend_data().
+     * @return array Map of objectid => entry. Empty for a legacy payload.
+     */
+    public static function objectid_scores(array $peritem): array {
+        $scores = [];
+        foreach ($peritem as $info) {
+            if (is_array($info) && isset($info['objectid']) && $info['objectid'] !== '') {
+                $scores[(string) $info['objectid']] = $info;
+            }
+        }
+        return $scores;
+    }
+
+    /**
+     * Keeps only the scores whose objectid belongs to a registered, non-deleted
+     * gradable iDevice of this instance.
+     *
+     * apply_item_scores() already ignores unknown objectids, but the overall recompute
+     * operates on the whole map, so an unfiltered map would let a caller skew the
+     * overall by injecting extra objectids. Extracted because the versioned `exe12/`
+     * path needs the same filter for the scores it recovers from cmi.suspend_data.
+     *
+     * @param \stdClass $exe        The exelearning instance record.
+     * @param array     $itemscores Map objectid => entry.
+     * @return array The same map without the unregistered objectids.
+     */
+    private static function filter_registered_scores(\stdClass $exe, array $itemscores): array {
+        if ($itemscores === []) {
+            return [];
+        }
+        $registered = array_flip(array_map('strval', self::registered_objectids($exe)));
+        return array_filter(
+            $itemscores,
+            fn($key) => isset($registered[(string) $key]),
+            ARRAY_FILTER_USE_KEY
+        );
     }
 
     /**
@@ -617,6 +826,12 @@ class track {
             'itemnumber, name, objectid'
         );
         foreach ($peritem as $itemnumber => $info) {
+            // A versioned `exe12/` entry names its own objectid and is keyed by it,
+            // not by an itemnumber: it belongs to apply_item_scores(). ingest() never
+            // sends one here; this is the guard for any other caller.
+            if (is_array($info) && !empty($info['objectid'])) {
+                continue;
+            }
             $itemnumber = (int) $itemnumber;
             if (!isset($rows[$itemnumber]) || !is_array($info)) {
                 continue;
@@ -711,17 +926,17 @@ class track {
             $grademax,
             'completed',
             $sessiontoken,
-            // Lowered to 0 by record_item() when the attempt it belongs to is
-            // completion-only, which is how a switch-on mid-sitting is prevented from
-            // making the accumulated client scores gradable (DEC-124-03).
-            !empty($exe->gradeenabled)
+            // Always gradable: apply_one() only runs for a registered objectid, and an
+            // ungraded activity has none — it returned at the top of ingest()
+            // (DEC-126-01).
+            true
         );
         // Gradebook grade = aggregation of attempts according to grademethod, over
         // GRADABLE rows only. A null means this learner has no gradable history for this
-        // iDevice, and the historical fallback to $rawitem is the score the CLIENT sent —
-        // so taking it would publish an unverified browser value in exactly the case
-        // where the server decided none of the history counts. Publish nothing instead.
-        // Mirrors the same rule on the overall in ingest().
+        // iDevice — only completion-only rows written by an older version — and the
+        // fallback to $rawitem is the score the CLIENT sent, so taking it would publish
+        // an unverified browser value. Publish nothing instead. Mirrors the same rule on
+        // the overall in ingest().
         $scaled = attempts::aggregate_scaled($exe->id, $userid, $itemnumber, $ctx['grademethod']);
         $finalitem = ($scaled === null) ? $rawitem : ($scaled * $grademax);
         // In "overall only" mode per-iDevice columns are not published (DEC-0-08),
