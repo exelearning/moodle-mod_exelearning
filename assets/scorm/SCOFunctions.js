@@ -645,6 +645,19 @@
         },
 
         /**
+         * @param {string} element - cmi element name.
+         * @returns {boolean} True when this runtime wrote the element during
+         * this session. getCachedValue() cannot answer this on its own: it
+         * returns '' both for "never written" and for "written as ''", and
+         * for a write-only element like cmi.core.exit the two mean opposite
+         * things — a resumed attempt has the LMS holding the previous visit's
+         * value while this session has written nothing.
+         */
+        hasWrittenValue: function (element) {
+            return Object.prototype.hasOwnProperty.call(state.writeCache, element);
+        },
+
+        /**
          * Persist the session data (LMSCommit).
          *
          * @returns {boolean} True when the LMS accepted the commit.
@@ -1089,7 +1102,12 @@
                 : source.completionRequired === true;
         var minimumScore = toNumber(source.minimumScore, toNumber(base.minimumScore, 0));
         var maximumScore = toNumber(source.maximumScore, toNumber(base.maximumScore, 100));
-        var weight = toNumber(source.weight, toNumber(base.weight, 1));
+        // No usable weight means 100, the same answer common.js gives in
+        // reportActivity() and the same default the editor writes into the
+        // form. It used to be 1 here, so the fallback was decided in two
+        // places that disagreed — and 1 is what made an activity that had
+        // never been through the editor weigh a hundredth of one that had.
+        var weight = toNumber(source.weight, toNumber(base.weight, 100));
         return {
             id: id,
             evaluable: evaluable,
@@ -1102,7 +1120,12 @@
             // A degenerate range (max <= min) cannot normalise a score; fall
             // back to the SCORM 1.2 default 0-100 window.
             maximumScore: maximumScore > minimumScore ? maximumScore : minimumScore + 100,
-            weight: weight > 0 ? weight : 1,
+            // Not usable is not usable: a zero or a negative gets the same 100
+            // a missing weight gets, which is what getFinalScore() answers and
+            // what the cross-check in the test file pins. Flooring these at 1
+            // instead made the two aggregations disagree — 40.4 against 60 for
+            // an activity weighed 0 next to one weighed by default.
+            weight: weight > 0 ? weight : 100,
         };
     }
 
@@ -1128,57 +1151,52 @@
     }
 
     /**
-     * Aggregate the evaluable activities into one 0-100 score with the
-     * historical eXeLearning weighting algorithm: each weight (clamped into
-     * 1-100) is scaled so the weights sum to exactly 100 as integers
-     * (largest-remainder rounding), and the aggregate is the weight-scaled
-     * sum of the normalised scores.
+     * Aggregate the evaluable activities into one 0-100 score: the weighted
+     * mean of their normalised scores, with each weight clamped into 1-100.
      *
-     * This is the registry's only aggregation. Published packages recorded
-     * cmi.core.score.raw with this exact rounding for years, and the
-     * completion policy compares the aggregate against the mastery
-     * threshold — a second algorithm (say, an exact weighted mean) could
-     * disagree near the threshold and flip a passed page to failed at exit.
+     * This is the registry's only aggregation, and `common.js`'s
+     * `getFinalScore()` carries the same arithmetic for the runtimes that have
+     * no registry (SCORM 2004, pre-rewrite packages). The two must agree: a
+     * second algorithm could disagree near the mastery threshold and flip a
+     * passed page to failed at exit. `exe-scorm12-activities.test.js` pins
+     * them against each other — it used to name a `.spec.js` that has never
+     * existed (frontend tests are `*.test.js`), so the invariant was declared
+     * and unguarded, which is how the two answers for an unusable weight came
+     * to disagree.
+     *
+     * It used to scale the weights to integers summing to exactly 100 by
+     * largest-remainder rounding. That made the page's mark depend on the
+     * order the author placed the iDevices in: the scaling leaves one point
+     * over, it goes to the largest fraction, and with equal weights every
+     * fraction ties — so a stable sort handed it to whichever activity came
+     * first, multiplying that one activity's score. Three equally weighted
+     * activities scoring 100/50/0 aggregated to 50.5, and the same three as
+     * 0/50/100 to 49.5: same work by the learner, opposite verdict against a
+     * mastery score of 50. A weighted mean is symmetric, so it cannot.
      *
      * @returns {number|null} Aggregate score, or null when no activity is
      * evaluable.
      */
     function aggregateScore() {
-        var entries = [];
         var weightSum = 0;
+        var weightedTotal = 0;
+        var evaluableCount = 0;
         for (var index = 0; index < state.order.length; index += 1) {
             var activity = state.byId[state.order[index]];
             if (!activity.evaluable) {
                 continue;
             }
             var weight = clamp(activity.weight, 1, 100);
-            entries.push({ score: normalizedScore(activity), scaled: weight, floored: 0, fraction: 0 });
+            weightedTotal += normalizedScore(activity) * weight;
             weightSum += weight;
+            evaluableCount += 1;
         }
-        if (entries.length === 0) {
+        if (evaluableCount === 0) {
             return null;
         }
-        var factor = 100 / weightSum;
-        var flooredSum = 0;
-        for (var position = 0; position < entries.length; position += 1) {
-            var scaled = entries[position].scaled * factor;
-            entries[position].floored = Math.floor(scaled);
-            entries[position].fraction = scaled - entries[position].floored;
-            flooredSum += entries[position].floored;
-        }
-        var remainder = 100 - flooredSum;
-        entries.sort(function (a, b) {
-            return b.fraction - a.fraction;
-        });
-        for (var slot = 0; slot < entries.length && remainder > 0; slot += 1) {
-            entries[slot].floored += 1;
-            remainder -= 1;
-        }
-        var weightedTotal = 0;
-        for (var item = 0; item < entries.length; item += 1) {
-            weightedTotal += entries[item].score * entries[item].floored;
-        }
-        return round2(weightedTotal / 100);
+        // clamp() forces every weight to at least 1, so the sum of one or more
+        // of them is never zero.
+        return round2(weightedTotal / weightSum);
     }
 
     /**
@@ -1242,7 +1260,10 @@
             answered: toNumber(fields[2], 0),
             total: toNumber(fields[3], 0),
             score: fields[4] === '' ? null : toNumber(fields[4], null),
-            weight: toNumber(fields[5], 1),
+            // A record whose weight field is missing or unreadable has no
+            // usable weight, which is the same 100 the rest of the runtime
+            // answers. A record that really carries 1 still decodes as 1.
+            weight: toNumber(fields[5], 100),
             minimumScore: toNumber(fields[6], 0),
             maximumScore: toNumber(fields[7], 100),
         });
@@ -1275,10 +1296,16 @@
                 continue;
             }
             var score = toNumber(match[3], null);
-            var weight = toNumber(match[4], 1);
+            // Same rule as everywhere else: a weight that is missing, zero or
+            // negative is not usable, and an unusable weight is 100. A pool
+            // record does not weigh until a live registration claims it — and
+            // claiming inherits the score alone — but serialize() writes the
+            // pool back out, so a bad value would round-trip through
+            // cmi.suspend_data on every visit.
+            var weight = toNumber(match[4], 100);
             pool[match[1]] = {
                 score: score === null ? 0 : clamp(score, 0, 100),
-                weight: weight !== null && weight > 0 ? weight : 1,
+                weight: weight !== null && weight > 0 ? weight : 100,
             };
         }
         return pool;
@@ -1587,10 +1614,14 @@
                     if (fields.length === 3) {
                         var poolPosition = toNumber(fields[0], null);
                         var poolScore = toNumber(fields[1], null);
+                        var poolWeight = toNumber(fields[2], 100);
                         if (poolPosition !== null && poolScore !== null) {
                             state.legacyByIndex[poolPosition] = {
                                 score: clamp(poolScore, 0, 100),
-                                weight: toNumber(fields[2], 1) || 1,
+                                // As above. `|| 1` used to let a negative
+                                // through untouched, because a negative number
+                                // is truthy.
+                                weight: poolWeight > 0 ? poolWeight : 100,
                             };
                             result.restored += 1;
                         }
@@ -1760,6 +1791,15 @@
             // required activity registers late; one restored from a previous
             // attempt or written explicitly by content never is.
             policySessionStatus: null,
+            // True while the LMS may hold an empty cmi.core.exit next to a
+            // terminal status this policy owns — either because this session
+            // cleared it, or because the entry policy adopted a terminal
+            // attempt the previous visit closed, which is what closing it
+            // wrote. It is what lets that "" be undone if the attempt reopens:
+            // outside the window the exit belongs to applyExitPolicy, and
+            // writing "suspend" on every page that merely reports progress
+            // would mark attempts the learner is still working on as suspended.
+            exitCleared: false,
             // True after applyEntryPolicy() has restored suspend_data. Game
             // iDevices register on jQuery ready, which is before loadPage().
             entryApplied: false,
@@ -1801,6 +1841,81 @@
     }
 
     /**
+     * Write cmi.core.exit, skipping a value this session already sent.
+     *
+     * @param {string} exit - "" (normal end) or "suspend" (resumable).
+     * @returns {string} The value now in force for this session.
+     */
+    function writeExit(exit) {
+        var client = deps.getClient();
+        // The client's write cache is the single record of what this session
+        // has sent, and every write path updates it — including SetExit()
+        // from content, which does not go through this policy. A copy kept
+        // here would go stale the moment content set its own exit, and the
+        // skipped write would be exactly the one that matters.
+        //
+        // Branch on the CAPABILITY, not on the client object, for the same
+        // reason showFinalScore does in common.js: getClient() resolves
+        // `exeScorm12.client` off the global, and the Moodle plugin injects
+        // its own vendored copy of this runtime into content exported by
+        // whichever eXeLearning release the author used. Both accessors
+        // arrived with the exit clearing itself, so a client from before it
+        // has neither. Losing the de-duplication costs one LMSSetValue of a
+        // value the LMS already holds; throwing here would take the exit, the
+        // session time and LMSFinish with it, since this runs inside
+        // applyExitPolicy.
+        var remembersWrites =
+            typeof client.hasWrittenValue === 'function' && typeof client.getCachedValue === 'function';
+        if (remembersWrites && client.hasWrittenValue(EXIT) && client.getCachedValue(EXIT) === exit) {
+            return exit;
+        }
+        client.setValue(EXIT, exit);
+        return exit;
+    }
+
+    /**
+     * Clear cmi.core.exit the moment the attempt turns terminal, instead of
+     * waiting for the exit policy at page unload.
+     *
+     * A resumed attempt starts with the previous visit's "suspend" stored at
+     * the LMS. Writing the status alone leaves the two disagreeing for the
+     * whole visit — the attempt reads as passed AND suspended — and Moodle
+     * redraws its course-structure menu on LMSCommit, which happens while the
+     * stale "suspend" is still there. Measured on Moodle 4.5: a page finished
+     * after a resume kept the unfinished icon until cmi.core.exit was cleared,
+     * with cmi.core.lesson_status sitting at "passed" the whole time.
+     *
+     * The other direction is handled only inside the window this function
+     * opened. Writing "suspend" as soon as any page reports progress would
+     * mark an attempt the learner is still working on as suspended; that value
+     * belongs to the exit, and applyExitPolicy still writes it. But once this
+     * session has cleared the exit, a "" is stored at the LMS describing an end
+     * that has not happened — and if the attempt then reopens (the learner
+     * restarts an activity, so reconcilePendingActivities downgrades the status
+     * back to "incomplete") nothing rewrote it. The only path that would is
+     * applyExitPolicy, and that runs from lifecycle.finish() alone: a tab the
+     * mobile browser kills, or an iframe Moodle replaces without firing
+     * pagehide, never reaches it. persist() — the last moment this runtime
+     * documents as guaranteed — does not touch the exit. The LMS would then
+     * close an unfinished attempt as a normal completion.
+     *
+     * Before the exit was cleared mid-session there was no such window: the
+     * "suspend" a resumed attempt already had at the LMS simply survived.
+     *
+     * @param {string} status - The status now in force at the LMS.
+     */
+    function syncExitWithStatus(status) {
+        if (policy.isTerminalStatus(status)) {
+            state.exitCleared = true;
+            writeExit('');
+            return;
+        }
+        if (state.exitCleared) {
+            writeExit('suspend');
+        }
+    }
+
+    /**
      * Write a lesson_status on behalf of content (the explicit setters and
      * doContinue). Content's verdict belongs to content, not to the policy:
      * the session claim is cleared even when the value repeats what the
@@ -1816,6 +1931,40 @@
             state.policySessionStatus = null;
         }
         return written;
+    }
+
+    /**
+     * Take the progress this session has already reported, before the stored
+     * attempt is restored over it.
+     *
+     * `score !== null` is what separates a report from a mere declaration:
+     * registerActivity() declares an activity with `total` and `legacyIndex`
+     * only, so a declared-but-unplayed activity still has a null score, while
+     * every real report carries one — including the 0 an iDevice publishes when
+     * the learner starts it.
+     *
+     * @param {object|null} activities - The registry, when one is installed.
+     * @returns {Array<{id: string, score: number, completed: boolean,
+     * answered: number}>} What to re-apply after the restore.
+     */
+    function reportedThisSession(activities) {
+        var reports = [];
+        if (!activities) {
+            return reports;
+        }
+        var records = activities.list();
+        for (var index = 0; index < records.length; index += 1) {
+            var record = records[index];
+            if (record.score !== null) {
+                reports.push({
+                    id: record.id,
+                    score: record.score,
+                    completed: record.completed,
+                    answered: record.answered,
+                });
+            }
+        }
+        return reports;
     }
 
     /**
@@ -1950,8 +2099,77 @@
             }
             policy.resolveSuccessThreshold();
             var activities = deps.getActivities();
+            // Anything the registry already holds got there before the session
+            // opened: iDevices register and report on jQuery ready, and
+            // loadPage() always trails them — the first attempt is a 50 ms poll
+            // in exe_export.js, it only latches on a successful open, and its
+            // sole retry is the body's onload, which waits for every image,
+            // stylesheet and iframe. The registry needs no session, so those
+            // reports land — but showFinalScore's own publish is refused, and
+            // they would sit unseen by the LMS until something else flushed
+            // them.
+            //
+            // Taken here as records, not as a flag. load() merges the stored
+            // payload OVER the live one — normalize() falls back to the live
+            // record only for an undefined field, and decodeRecord() never
+            // produces one — so this session's work does not survive the
+            // restore on its own. Knowing merely that work arrived cannot
+            // protect it; knowing which activities reported can.
+            var pendingReports = reportedThisSession(activities);
             if (activities) {
                 activities.load(client.getValue(SUSPEND_DATA));
+            }
+            // A terminal status the LMS already holds that the *restored*
+            // registry derives on its own is this policy's own earlier verdict
+            // coming back across a page load: the same registry wrote it and
+            // the same registry still accounts for it. Adopt it as the session
+            // claim, so the replay correction in applyDecidedStatus still
+            // applies to it. Without this, a learner who finishes a page,
+            // navigates away, comes back and restarts an activity gets the
+            // score reset to 0 while the LMS keeps showing "passed".
+            //
+            // Deliberately narrow, and it is the registry that makes it so: a
+            // status content set explicitly, or one left by a genuinely
+            // different attempt, does not match what the restored payload
+            // derives, so it stays preserved. This is not the same as
+            // agreeing with a stored value mid-session, which never claims
+            // ownership (see applyDecidedStatus) — here the agreement comes
+            // from the payload the LMS just handed back.
+            if (activities && policy.isTerminalStatus(status) && policy.decideStatus().status === status) {
+                state.policySessionStatus = status;
+                // The exit that goes with it is claimed too. A terminal attempt
+                // stored at the LMS was closed by the visit that finished it,
+                // and closing it wrote cmi.core.exit = "": the same window this
+                // session opens when it clears the exit itself, only opened by
+                // a previous visit. Without claiming it here, a learner who
+                // finishes a page, comes back and restarts an activity leaves
+                // the LMS holding a "" that describes an end that no longer
+                // happened — verified in Moodle 5.0.7 with a minimal SCO, where
+                // only an intermediate re-evaluation of the terminal status
+                // (which the full iDevice flow happens to do, and the policy
+                // alone does not guarantee) covered it up.
+                state.exitCleared = true;
+            }
+            // Now re-apply this session's reports over the restored attempt —
+            // after the adoption above, which has to read the registry exactly
+            // as the payload left it, and never before it.
+            //
+            // A report supersedes the stored record whether it scores higher or
+            // lower, because an iDevice cannot resume: nothing under idevices/
+            // reads cmi.suspend_data, and startGame() clears the board and
+            // resets the counters. Interacting again therefore begins a new
+            // attempt, and the 0 it publishes is deliberate — once the session
+            // is open register() already lets that 0 win, so anything else here
+            // would make the same learner action behave differently depending
+            // on when it landed. Applied as a unit: mixing a stored completion
+            // with a live score would build a state no report ever produced.
+            for (var pending = 0; pending < pendingReports.length; pending += 1) {
+                var report = pendingReports[pending];
+                activities.update(report.id, {
+                    score: report.score,
+                    completed: report.completed,
+                    answered: report.answered,
+                });
             }
             state.entryApplied = true;
             var summary = activities ? activities.summary() : null;
@@ -1963,6 +2181,24 @@
             // question and common.js reads the same field.
             if (summary && summary.score !== null && summary.scored > 0) {
                 policy.setScoreDetailed(summary.score, 0, 100);
+            }
+            // Flush what was reported before the session opened, and only that:
+            // deciding the status from a purely restored registry would rewrite
+            // an attempt this session has not touched, which the entry contract
+            // forbids. The score above is published either way — it always was.
+            //
+            // Persist before committing, as applyExitPolicy does. The registry
+            // now holds the restored attempt plus whatever was reported before
+            // the session opened, and only the first of those is in
+            // cmi.suspend_data. Committing the score and the status without
+            // rewriting it would store a mark the payload cannot account for,
+            // so a later visit would restore less than the LMS already shows.
+            // This was the one place in the runtime that committed without
+            // persisting first.
+            if (pendingReports.length > 0) {
+                policy.persistActivities();
+                policy.applyDecidedStatus();
+                client.commit();
             }
         },
 
@@ -2150,6 +2386,12 @@
                 var policyOwned = current === state.policySessionStatus;
                 var lateRegistration = decision.reason === 'required-activities-pending';
                 if (!policyOwned || !lateRegistration) {
+                    // No exit sync here: this branch deliberately touches
+                    // nothing. The terminal status belongs to a previous
+                    // attempt or to content, and the learner may be working
+                    // through the page right now — claiming a normal end for
+                    // an attempt this policy declined to judge would be worse
+                    // than leaving the two disagreeing.
                     return {
                         status: current,
                         written: false,
@@ -2164,17 +2406,22 @@
                 // by content — agreeing with it is not the same as having
                 // written it, and only a status this policy wrote may later
                 // be downgraded.
+                syncExitWithStatus(current);
                 return { status: current, written: true, reason: decision.reason, effective: current };
             }
             var written = writeStatus(decision.status);
             if (written) {
                 state.policySessionStatus = decision.status;
             }
+            // The status the LMS actually holds, so a rejected write does not
+            // clear an exit the attempt still needs.
+            var effective = written ? decision.status : current;
+            syncExitWithStatus(effective);
             return {
                 status: decision.status,
                 written: written,
                 reason: decision.reason,
-                effective: written ? decision.status : current,
+                effective: effective,
             };
         },
 
@@ -2224,8 +2471,7 @@
             } else {
                 status = client.getValue(LESSON_STATUS);
             }
-            var exit = policy.isTerminalStatus(status) ? '' : 'suspend';
-            client.setValue(EXIT, exit);
+            var exit = writeExit(policy.isTerminalStatus(status) ? '' : 'suspend');
             return { status: status, exit: exit };
         },
 
@@ -3280,10 +3526,30 @@
          * returns true when the session is already active — iDevice
          * bootstrap code gates its SCORM setup on this.
          *
+         * Applies the entry policy too, because opening the session is what
+         * makes writes stop being refused. iDevices call this from their own
+         * setup (common.js's initGame, and trueorfalse, adaptative-quiz and
+         * scrambled-list directly), and that setup runs before loadPage():
+         * exe_export.js registers the iDevice poller before the SCORM one, on
+         * the same 50 ms delay. Initialising without restoring would leave a
+         * live session over a registry that holds nothing but this page's
+         * declarations, and the first report's persistActivities() would then
+         * serialise that registry over cmi.suspend_data — wiping the stored
+         * marks of every OTHER activity on the page, and committing it.
+         *
+         * Not session.open(): that settles who owns the page lifecycle, and an
+         * iDevice must not take that decision away from a host that opened
+         * with ownsLifecycle false. applyEntryPolicy() is idempotent, so the
+         * loadPage() that follows still decides ownership and repeats nothing.
+         *
          * @returns {boolean} True when the session is active.
          */
         init: function () {
-            return client.initialize();
+            if (!client.initialize()) {
+                return false;
+            }
+            policy.applyEntryPolicy();
+            return true;
         },
         /**
          * @param {string} element - cmi element name.

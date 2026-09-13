@@ -71,3 +71,4 @@ items:
   - id: 'DEC-124-02', titulo: 'DEC-124-02-el-interruptor-calificable-silencia-la-publicacion-no-la-ingesta', estado: None, fecha: None, ruta: 'decisiones/adr/DEC-124-02-el-interruptor-calificable-silencia-la-publicacion-no-la-ingesta.md'
   - id: 'DEC-124-03', titulo: 'DEC-124-03-lo-hecho-sin-calificacion-nunca-se-convierte-en-nota', estado: None, fecha: None, ruta: 'decisiones/adr/DEC-124-03-lo-hecho-sin-calificacion-nunca-se-convierte-en-nota.md'
   - id: 'DEC-125-01', titulo: 'DEC-125-01-linea-base-de-cambio-por-objectid', estado: None, fecha: None, ruta: 'decisiones/adr/DEC-125-01-linea-base-de-cambio-por-objectid.md'
+  - id: 'DEC-126-01', titulo: 'DEC-126-01-con-la-calificacion-apagada-no-se-registra-nada', estado: None, fecha: None, ruta: 'decisiones/adr/DEC-126-01-con-la-calificacion-apagada-no-se-registra-nada.md'
