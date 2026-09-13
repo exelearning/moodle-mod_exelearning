@@ -1,273 +1,47 @@
 ---
 name: changelog
-description: Generate a draft CHANGELOG entry for the next release from merged GitHub pull requests, or update the existing draft block with PRs merged since one already incorporated. Asks the user which mode to run before starting.
+description: Draft or update mod_exelearning release notes from merged GitHub PRs, preserving the existing changelog style and published entries.
 ---
 
-# Skill: Generate or update CHANGELOG draft
+# Changelog draft
 
-> **This skill produces a working draft, not a finished changelog.** The output is a starting point to make the task easier — the maintainer must review, edit and refine every entry before committing.
+`CHANGELOG.md` ships in the plugin ZIP. Describe outcomes for teachers, students and
+administrators, not internal implementation. This skill prepares a reviewable draft;
+it does not publish a release. Adapted from the changelog workflow in
+`exelearning/exelearning`, with this plugin's paths and repository identity.
 
-> Adapted from the sibling skill in [`exelearning/exelearning`](https://github.com/exelearning/exelearning/blob/main/.agents/skills/changelog/SKILL.md); keep the two in sync when either changes. The differences are this repository's slug, the changelog living at the repo root, and the plugin's own reference entries.
+Use the mode, cutoff and target version already supplied by the user. Ask only for
+missing information that cannot be established reliably:
 
-`CHANGELOG.md` ships inside the release ZIP, so its entries are read by administrators installing the plugin, not only by developers.
+- **Update draft:** keep the top version block and add PRs merged after the last PR
+  already incorporated. If that cutoff is not recorded or supplied, ask for it;
+  do not guess by matching changelog prose to PR titles.
+- **New block:** use the requested target version/type and today's date. Obtain the
+  cutoff from the latest published GitHub release. Do not invent a target version.
 
-Two modes are available:
+Sources:
 
-- **Mode A — Update existing draft** (use this most of the time, e.g. "check for new PRs since we last updated the changelog"): reviews PRs merged after a given already-incorporated PR, and appends new entries to the draft block already at the top of `CHANGELOG.md`.
-- **Mode B — New version block**: generates a brand-new version block from all PRs merged since the last *published* GitHub release. Use this only when starting the draft for a release that has no block yet.
-
----
-
-## 0. Ask which mode to run
-
-**Before doing anything else**, ask the user:
-
-> Do you want to (A) update the existing draft at the top of the CHANGELOG with PRs merged since one that's already in there, or (B) start a brand-new version block from the last published release?
-
-If the user doesn't know or this is a recurring "check for new PRs" task, default to **Mode A**.
-
----
-
-## Mode A — Update the existing draft
-
-### A.1 Ask for the last incorporated PR
-
-Ask the user:
-
-> What's the number of the last PR that's already reflected in the current CHANGELOG draft?
-
-Wait for the PR number (e.g. `103`). Don't try to guess it by matching changelog text back to PR titles — it's ambiguous and error-prone; asking is more reliable.
-
-### A.2 Get the cut-off timestamp
-
-```
-gh pr view <N> --repo exelearning/moodle-mod_exelearning --json number,title,mergedAt
-```
-
-Record `mergedAt` as the cut-off.
-
-### A.3 List PRs merged after the cut-off
-
-```
-gh pr list \
-  --repo exelearning/moodle-mod_exelearning \
-  --state merged \
-  --search "merged:>YYYY-MM-DDTHH:MM:SSZ" \
-  --json number,title,body,labels,mergedAt \
-  --limit 200
-```
-
-Sort by `mergedAt` ascending. For each PR, read `title` and the full `body` (the primary source — a PR title alone often hides a real fix mixed in with test changes, or vice versa).
-
-### A.4 Filter out non-user-facing PRs
-
-Skip PRs that only touch tests, CI, linting, or internal tooling with no behavioral change described in the body — typically titled `test(...)`, `chore(...)`, `ci(...)`. Read the body carefully: a `test(...)`-titled PR can still describe a real bug it fixed in application code (check for phrasing like "real bug", "underlying race", "actual fix") — in that case extract just the user-facing fix as an entry and drop the test-only parts.
-
-### A.5 Classify and write entries
-
-Apply the same classification table and style rules as Mode B (see [B.3](#b3-classify-each-change) and [B.4](#b4-write-the-entries) below) to whatever survives the filter in A.4.
-
-### A.6 Insert into the existing top block
-
-Find the **first** `## vX.Y.Z...` block in `CHANGELOG.md` (the topmost one — this is the active draft). For each new entry:
-
-- Insert it as a new bullet under the matching `### Added` / `### Changed` / `### Fixed` / `### Upgraded` / `### Removed` subsection of that block.
-- If the subsection doesn't exist yet in the block, create it in the standard order (Added, Changed, Fixed, Upgraded, Removed).
-- Do not create a new `## vX.Y.Z` block, and do not touch any block below the top one.
-- Check for semantic duplicates (not just exact string matches) before adding — skip anything already effectively covered.
-
-### A.7 Report back
-
-Tell the user, per PR reviewed:
-- Which PRs were added to the changelog and which bullet/section they landed in.
-- Which PRs were skipped, and why (e.g. "test-only, no user-facing change").
-
-Then give the same draft reminder as in [B.7](#b7-remind-the-user-this-is-a-draft) below.
-
----
-
-## Mode B — New version block
-
-### B.0 Ask for the target version
-
-**Before doing anything else**, ask the user:
-
-> What will the version number and type be for this release?
-> Examples: `v4.0.3`, `v4.1.0-beta1`
-
-Wait for the answer. Use that value as-is for the heading — do not infer or calculate it from the existing CHANGELOG.
-
-The release date is **today's date** in `yyyy-mm-dd` format.
-
----
-
-### B.1 Find the latest published release on GitHub
-
-Fetch the latest release to get the cut-off timestamp:
-
-```
+```bash
+gh pr view NUMBER --repo exelearning/moodle-mod_exelearning --json number,title,mergedAt
 gh release view --repo exelearning/moodle-mod_exelearning --json tagName,publishedAt
+gh pr list --repo exelearning/moodle-mod_exelearning --state merged --search 'merged:>TIMESTAMP' --json number,title,body,labels,mergedAt --limit 200
 ```
 
-Record:
-- **`tagName`** — the git tag of the last release (e.g. `v4.0.2`).
-- **`publishedAt`** — the ISO timestamp used to filter merged PRs.
+Read each PR's full body, ordered by merge time; paginate if the limit is reached.
+Follow linked issues in the repository actually referenced (plugin issues may live
+in `exelearning/exelearning` with the Moodle label). Split mixed PRs into individual
+user-facing changes. Skip test/CI/tooling-only work, but retain behavioral fixes
+hidden in test-titled PRs. Do not treat unmerged work as released.
 
----
+Use `Added`, `Changed`, `Fixed`, `Upgraded`, `Removed` in that order, omitting empty
+sections. Match existing headings (`## vX.Y.Z – YYYY-MM-DD`) and bullets:
 
-### B.2 Collect all merged PRs since the last release
+- One sentence, initial capital, no final full stop.
+- Lead with an area when useful: `Gradebook:`, `Embedded editor:`, `Attempts report:`.
+- Dependency upgrades use `package-name: OLD → NEW`; verify editor against `.editor-version`.
+- Deduplicate by meaning. Do not rewrite published blocks or unrelated content.
 
-```
-gh pr list \
-  --repo exelearning/moodle-mod_exelearning \
-  --state merged \
-  --search "merged:>YYYY-MM-DDTHH:MM:SSZ" \
-  --json number,title,body,labels,mergedAt \
-  --limit 200
-```
-
-> Replace the timestamp with the `publishedAt` value from step 1.
-
-For **each PR** read:
-- **`title`** — the PR headline.
-- **`body`** — the **full description**. This is the primary source; many PRs bundle several unrelated changes under a single title.
-- **`labels`** — useful classification hints.
-
-If a PR body references issues with `Closes #NNN` or `Fixes #NNN`, fetch them too:
-
-```
-gh issue view NNN --repo exelearning/exelearning --json title,body
-```
-
-> Issue tracking for this plugin lives in the `exelearning/exelearning` repository (label `moodle`), not in this one.
-
----
-
-### B.3 Classify each change
-
-Map every individual change (one PR may yield several entries) to one of these sections:
-
-| Section | What goes here |
-|---------|----------------|
-| **Added** | New features, new settings, new admin pages, new web-service functions, new documentation |
-| **Changed** | Behaviour that already existed and now works differently (defaults, grading model, UI flow) |
-| **Fixed** | Bug fixes, presentation corrections, performance improvements, security fixes |
-| **Upgraded** | Dependency and embedded-editor version bumps |
-| **Removed** | Features, options or files that no longer exist |
-
-**Label hints:**
-- `bug` → Fixed
-- `enhancement` / `feature` → Added
-- `dependencies` / `deps` → Upgraded
-- `breaking` / `removal` → Removed
-
-When a PR body mixes additions and fixes, split them into separate entries under the appropriate section.
-
----
-
-### B.4 Write the entries
-
-Follow the **exact style** of the existing changelog entries in `CHANGELOG.md`:
-
-### Style rules
-
-- **One sentence per bullet.** Start with a capital letter; no trailing full stop.
-- **Lead with the subject area** for component-specific entries:
-  `Gradebook: …`, `Embedded editor: …`, `Attempts report: …`, `Migration: …`
-- Describe the **outcome for the teacher, student or administrator**, not the implementation:
-  - ✅ `Gradebook: every gradable iDevice now reaches its own column, including the encrypted ones`
-  - ❌ `Fixed isScorm detection in the DataGame block of package.php`
-- **Avoid technical jargon** unless already used in the existing changelog (e.g. `.elpx`, `SCORM`, `xAPI`).
-- **Dependency upgrades:** `package-name: OLD → NEW` (lowercase, `→`, no extra words).
-- **Group related items** within each section.
-- **Keep it short.** A release block is a summary, not a log: aim for the handful of entries an administrator needs to decide whether to upgrade. Merge near-duplicates into the single sentence that carries the outcome.
-
-### What NOT to include
-
-- Duplicate entries for the same fix.
-- Multiple translation-only bullets — merge into one: `Updated [Language] ([CODE]) translation`.
-- Dependency-only PRs with no user-visible effect may be grouped into one bullet if there are many minor bumps.
-- Merge commits and version-bump-only PRs.
-- Purely internal changes (CI tweaks, test additions, refactors, linting) unless they change what the plugin does.
-
----
-
-### B.5 Assemble the block
-
-```markdown
-## vX.Y.Z-type – YYYY-MM-DD
-
-### Added
-
-- …
-
-### Changed
-
-- …
-
-### Fixed
-
-- …
-
-### Upgraded
-
-- …
-
-### Removed
-
-- …
-```
-
-Omit any section that has no entries.
-
----
-
-### B.6 Insert into `CHANGELOG.md`
-
-Insert the new block **immediately after the intro paragraph that follows the `# CHANGELOG` heading** and before the previous version's `## v…` entry.
-
-```
-# CHANGELOG
-
-<intro paragraph>
-
-## vX.Y.Z-type – YYYY-MM-DD      ← new draft block
-…
-
-## v4.0.2 – 2026-07-07           ← previous block, unchanged
-…
-```
-
-Do **not** modify any existing content below the insertion point.
-
----
-
-### B.7 Remind the user this is a draft
-
-After inserting the block, tell the user:
-
-> ⚠️ This is a draft. Please review every entry before committing:
-> - Check that descriptions are accurate and clear for end users.
-> - Merge or remove redundant entries.
-> - Verify the embedded editor version against `.editor-version`.
-> - Add anything the PRs may not have described explicitly.
-
----
-
-## Reference: existing entry style
-
-```markdown
-## v4.0.1 – 2026-06-09
-
-### Added
-
-- Activities can be created and authored from scratch in the embedded editor, with no package to upload first
-- Packages can be uploaded as `.zip` as well as `.elpx`
-- Added Spanish, Catalan, Basque and Galician language packs
-
-### Fixed
-
-- Gradebook: every gradable iDevice now reaches its own column, including the ones inside encrypted blocks
-- Gradebook: students see their course total again when per-iDevice grading is in use
-- Scores are routed by stable iDevice identifier, so editing a package can no longer send them to the wrong column
-```
+Report which PRs contributed entries and which were skipped with their reason.
+Mark the result as a draft requiring editorial review; existing authorization to
+commit the prepared change still applies. No forced confirmation when the request
+already establishes the mode, version, cutoff or permission.

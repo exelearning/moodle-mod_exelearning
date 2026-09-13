@@ -73,8 +73,8 @@ vendor/bin/phpunit --coverage-text --filter mod_exelearning
 vendor/bin/phpunit --coverage-html coverage --filter mod_exelearning
 ```
 
-CI runs PHPUnit with `coverage: none` for speed; generate coverage locally with
-a driver enabled.
+CI enables xdebug on its designated PHP coverage matrix cell; the other cells use
+`coverage: none`. Generate coverage locally with a driver enabled.
 
 ## Behat
 
@@ -109,7 +109,7 @@ moodle-plugin-ci phpdoc --max-warnings 0
 moodle-plugin-ci validate
 moodle-plugin-ci savepoints
 moodle-plugin-ci mustache
-moodle-plugin-ci grunt --max-lint-warnings 0
+moodle-plugin-ci grunt
 moodle-plugin-ci phpunit --fail-on-warning
 moodle-plugin-ci behat --profile chrome
 ```
