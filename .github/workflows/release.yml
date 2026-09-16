@@ -43,6 +43,15 @@ permissions:
 
 jobs:
   build_and_upload:
+    # Forks receive the release-preparation commit and the follow-up development
+    # commit in a single sync push. GitHub matches the `.editor-version` path
+    # filter against every commit in that push but checks out its head, so the
+    # publishing events would run on a commit whose $plugin->release is still
+    # 'dev' and would try to tag and publish the release under the fork. Manual
+    # dispatch never publishes, so it stays available to fork maintainers.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.repository == 'exelearning/moodle-mod_exelearning'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
