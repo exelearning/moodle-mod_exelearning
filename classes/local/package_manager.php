@@ -356,14 +356,23 @@ final class package_manager {
             }
             $runtimepaths[$shimname] = $assetpath;
         }
-        foreach ($runtimepaths as $shimname => $assetpath) {
+        // Refresh the opaque viewer bridge and media client alongside the runtime (DEC-80-01).
+        $clientassets = $runtimepaths + [
+            'scorm_tracker.js' => __DIR__ . '/../../js/scorm_tracker.js',
+            'exe_scorm_bridge.js' => __DIR__ . '/../../js/scorm_bridge_shim.js',
+            'exe_embed_shim.js' => __DIR__ . '/../../js/exe_external_media/exe-external-media-child.min.js',
+        ];
+        foreach ($clientassets as $destname => $assetpath) {
+            if (!is_file($assetpath)) {
+                continue;
+            }
             $present = $fs->get_file(
                 $context->id,
                 'mod_exelearning',
                 'content',
                 (int) $data->revision,
                 '/libs/',
-                $shimname
+                $destname
             );
             if ($present) {
                 $present->delete();
@@ -374,7 +383,7 @@ final class package_manager {
                 'filearea'  => 'content',
                 'itemid'    => (int) $data->revision,
                 'filepath'  => '/libs/',
-                'filename'  => $shimname,
+                'filename'  => $destname,
             ], $assetpath);
         }
 

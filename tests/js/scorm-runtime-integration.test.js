@@ -32,7 +32,7 @@ const wrapperSource = fs.readFileSync(path.resolve('assets/scorm/SCORM_API_wrapp
 const runtimeSource = fs.readFileSync(path.resolve('assets/scorm/SCOFunctions.js'), 'utf8');
 
 /** One persistent Moodle host, with a fresh runtime for each iframe navigation. */
-function hostSession() {
+function hostSession(opaque = false) {
     const posts = [];
     const { createScormApi } = loadTracker(path.resolve('js/scorm_tracker.js'));
     const { api } = createScormApi({
@@ -44,6 +44,7 @@ function hostSession() {
         getScoringDocument: () => null,
         setTimeout: () => 1,
         clearTimeout: () => {},
+        transport: opaque ? (payload) => { posts.push(payload); return true; } : undefined,
         xhrFactory: () => ({
             status: 200,
             open() {},
@@ -59,6 +60,10 @@ function hostSession() {
         page() {
             const parent = { API: api };
             parent.parent = parent;
+            if (opaque) {
+                Object.defineProperty(parent, 'API', { get() { throw new Error('SecurityError'); } });
+                Object.defineProperty(parent, 'API_1484_11', { get() { throw new Error('SecurityError'); } });
+            }
             const child = {
                 parent,
                 top: parent,
@@ -66,6 +71,7 @@ function hostSession() {
                 addEventListener: vi.fn(),
                 document: { addEventListener: vi.fn() },
             };
+            if (opaque) { child.API = api; }
             child.window = child;
             const context = vm.createContext(child);
             vm.runInContext(wrapperSource, context);
@@ -94,6 +100,17 @@ function report(page, id, score, completed) {
 }
 
 describe('vendored SCORM runtime → plugin tracker', () => {
+    it('reports through the local bridge transport without accessing an opaque parent', () => {
+        const host = hostSession(true);
+        const page = host.page();
+        register(page, 'secure-item');
+        expect(page.exeScorm12.session.open({ ownsLifecycle: false })).toBe(true);
+        report(page, 'secure-item', 75, true);
+        expect(host.posts.at(-1).itemscores['secure-item'].scorepct).toBe(75);
+        expect(host.posts.at(-1).cmi['cmi.core.score.raw']).toBe('75');
+        expect(host.finish).not.toHaveBeenCalled();
+    });
+
     it('opens an untouched activity without manufacturing an item or overall score', () => {
         const host = hostSession();
         const page = host.page();

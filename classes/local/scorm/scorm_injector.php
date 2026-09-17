@@ -33,8 +33,16 @@ namespace mod_exelearning\local\scorm;
  */
 final class scorm_injector {
     /**
-     * Injects SCORM wrapper script tags into the <head> of index.html and all
+     * Injects the SCORM client script tags into the <head> of index.html and all
      * html/<slug>.html pages of the extracted package.
+     *
+     * Two independent, idempotent blocks are injected:
+     *  - The bridge client (libs/scorm_tracker.js + libs/exe_scorm_bridge.js) at the
+     *    TOP of <head>, so its in-memory storage polyfill and local window.API are in
+     *    place before any package script runs. It self-activates only in the secure
+     *    opaque-origin iframe mode and is dormant otherwise (DEC-80-01).
+     *  - The pipwerks SCORM wrapper (libs/SCORM_API_wrapper.js + libs/SCOFunctions.js)
+     *    plus an init kick, just before </head>, used by both iframe modes.
      *
      * @param int $contextid
      * @param int $revision
@@ -42,6 +50,7 @@ final class scorm_injector {
     public static function inject(int $contextid, int $revision): void {
         $fs = get_file_storage();
         $marker = '<!-- mod_exelearning:scorm-loader -->';
+        $bridgemarker = '<!-- mod_exelearning:scorm-bridge -->';
         // The plugin manufactures a SCORM session around content that is not a SCORM
         // package, so it has to open that session itself: eXeLearning only does it in its
         // on-click flow, and with isScorm == 1 (auto-save after each question) that flow
@@ -90,14 +99,7 @@ final class scorm_injector {
                 "        }, 50);\n" .
                 "      })();\n" .
                 "    </script>\n";
-        $tags = $marker .
-                "\n    <script src=\"libs/SCORM_API_wrapper.js\"></script>" .
-                "\n    <script src=\"libs/SCOFunctions.js\"></script>" .
-                $initscript;
-        $tagshtml = $marker .
-                "\n    <script src=\"../libs/SCORM_API_wrapper.js\"></script>" .
-                "\n    <script src=\"../libs/SCOFunctions.js\"></script>" .
-                $initscript;
+        $embedmarker = '<!-- mod_exelearning:embed-shim -->';
 
         // Iterate over all HTML files in the filearea.
         $files = $fs->get_area_files(
@@ -117,30 +119,73 @@ final class scorm_injector {
                 continue;
             }
             $html = $file->get_content();
-            if ($html === '' || strpos($html, $marker) !== false) {
+            if ($html === '') {
                 continue;
             }
+            // Relative prefix to the package's libs/ dir: root pages use 'libs/', nested
+            // html/<slug>.html pages climb one level with '../libs/'.
             $path = $file->get_filepath();
-            $payload = ($path === '/') ? $tags : $tagshtml;
-            // A SCORM export must not open the session as a SCO behind the bootstrap's
-            // back (see the comment above and neutralise_sco_entry()); a web export
-            // comes back from this untouched.
-            $html = self::neutralise_sco_entry($html);
-            // Drop any runtime the package brought its own script tags for. An
-            // eXeLearning SCORM 1.2 export references these two files itself, and this
-            // plugin accepts such a package, so without this the page loads the runtime
-            // TWICE — package_manager has already replaced the files with the plugin's
-            // own, so both tags point at the same bytes and the whole runtime is parsed
-            // and executed a second time. One runtime, once, is the contract.
-            $html = preg_replace(
-                '~[ \t]*<script\b[^>]*\bsrc\s*=\s*"[^"]*(?:SCORM_API_wrapper|SCOFunctions)\.js"[^>]*>'
-                    . '\s*</script>[ \t]*\r?\n?~i',
-                '',
-                $html
-            ) ?? $html;
-            // Insert just before </head> (case-insensitive).
-            $newhtml = preg_replace('~</head>~i', $payload . '</head>', $html, 1);
-            if ($newhtml === null || $newhtml === $html) {
+            $libs = ($path === '/') ? 'libs/' : '../libs/';
+            $newhtml = $html;
+            if (strpos($newhtml, $marker) === false) {
+                // A SCORM export must not open the session as a SCO behind the bootstrap's
+                // back (see the comment above and neutralise_sco_entry()); a web export
+                // comes back from this untouched.
+                $newhtml = self::neutralise_sco_entry($newhtml);
+                // Drop any runtime the package brought its own script tags for. An
+                // eXeLearning SCORM 1.2 export references these two files itself, and this
+                // plugin accepts such a package, so without this the page loads the runtime
+                // TWICE — package_manager has already replaced the files with the plugin's
+                // own, so both tags point at the same bytes and the whole runtime is parsed
+                // and executed a second time. One runtime, once, is the contract.
+                $newhtml = preg_replace(
+                    '~[ \t]*<script\b[^>]*\bsrc\s*=\s*"[^"]*(?:SCORM_API_wrapper|SCOFunctions)\.js"[^>]*>'
+                        . '\s*</script>[ \t]*\r?\n?~i',
+                    '',
+                    $newhtml
+                ) ?? $newhtml;
+            }
+            $changed = $newhtml !== $html;
+
+            // Script payloads, built once per file from $libs. The bridge client
+            // (scorm_tracker.js before exe_scorm_bridge.js: the shim calls
+            // window.exeScormTracker.createScormApi) and the external-embed shim both go
+            // at the TOP of <head>; the pipwerks SCORM wrapper + init kick go just before
+            // </head>. No host list is baked for the embed shim: it promotes any candidate
+            // and the parent relay is the authoritative gate (open vs strict, DEC-80-03).
+            $bridge = $bridgemarker .
+                    "\n    <script src=\"{$libs}scorm_tracker.js\"></script>" .
+                    "\n    <script src=\"{$libs}exe_scorm_bridge.js\"></script>\n";
+            $embed = $embedmarker .
+                    "\n    <script src=\"{$libs}exe_embed_shim.js\"></script>\n";
+            $scorm = $marker .
+                    "\n    <script src=\"{$libs}SCORM_API_wrapper.js\"></script>" .
+                    "\n    <script src=\"{$libs}SCOFunctions.js\"></script>" .
+                    $initscript;
+
+            // Idempotent <head> insertions, applied in order so each one matches against
+            // the HTML already modified by the previous (e.g. the embed insert sees the
+            // bridge-modified <head>). Each fires at most once, guarded by its own marker.
+            // Entry = [marker, payload, anchor regex, top?]: top appends the payload AFTER
+            // the matched <head> tag, otherwise it is prepended BEFORE the matched </head>.
+            $inserts = [
+                [$bridgemarker, $bridge, '~<head[^>]*>~i', true],
+                [$embedmarker, $embed, '~<head[^>]*>~i', true],
+                [$marker, $scorm, '~</head>~i', false],
+            ];
+            foreach ($inserts as [$mk, $payload, $regex, $top]) {
+                if (strpos($newhtml, $mk) !== false) {
+                    continue;
+                }
+                $replacement = $top ? '$0' . $payload : $payload . '$0';
+                $replaced = preg_replace($regex, $replacement, $newhtml, 1);
+                if ($replaced !== null && $replaced !== $newhtml) {
+                    $newhtml = $replaced;
+                    $changed = true;
+                }
+            }
+
+            if (!$changed) {
                 continue;
             }
             // Replace content in the filearea: delete and recreate.
