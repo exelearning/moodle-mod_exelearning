@@ -2,10 +2,16 @@ name: Moodle Plugin CI
 
 on:
   push:
+    paths-ignore:
+      - '.agents/skills/**'
+      - '.claude/skills/**'
     branches:
       - main
       - master
   pull_request:
+    paths-ignore:
+      - '.agents/skills/**'
+      - '.claude/skills/**'
   workflow_dispatch:
 
 permissions:
@@ -143,7 +149,6 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: ${{ matrix.extensions }}
           ini-values: max_input_vars=5000
           # Enable a coverage driver only on the designated coverage job.
           coverage: ${{ matrix.coverage || 'none' }}
