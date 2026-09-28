@@ -593,6 +593,38 @@ final class package_test extends advanced_testcase {
     }
 
     /**
+     * Each detected iDevice carries the title its author gave it (the enclosing
+     * block's blockName), which names its gradebook column (exelearning issue 2459).
+     */
+    public function test_real_datagame_fixture_detects_authored_titles(): void {
+        $this->resetAfterTest();
+
+        $detected = $this->detect_raw($this->load_fixture_xml('real-datagame'));
+
+        $titles = [];
+        foreach ($detected as $item) {
+            $titles[$item->idevicetype] = $item->title;
+        }
+        ksort($titles);
+        $this->assertSame(['guess' => 'Adivina', 'trueorfalse' => 'Verdadero o falso'], $titles);
+    }
+
+    /**
+     * A package without blocks (the flat odeNavStructure serialisation) has no
+     * authored title: the title is empty so callers fall back to the iDevice type.
+     */
+    public function test_package_without_block_names_has_empty_titles(): void {
+        $this->resetAfterTest();
+
+        $detected = $this->detect_raw($this->load_fixture_xml('real-multipage'));
+
+        $this->assertNotEmpty($detected);
+        foreach ($detected as $item) {
+            $this->assertSame('', $item->title);
+        }
+    }
+
+    /**
      * Regression on the real package attached to issue #29: Video interactivo,
      * Verdadero/Falso and Quiz adaptativo expose `isScorm`, while GeoGebra exposes
      * only the `auto-geogebra-scorm` HTML class. All four must create grade items.
