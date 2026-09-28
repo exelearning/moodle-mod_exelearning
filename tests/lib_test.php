@@ -750,6 +750,134 @@ final class lib_test extends advanced_testcase {
     }
 
     /**
+     * Builds an .elpx on disk whose single page holds one block per iDevice.
+     *
+     * @param array $blocks List of [objectid, idevicetype, blockName or null to omit it].
+     * @return string Absolute path of the .elpx file.
+     */
+    protected function make_titled_package(array $blocks): string {
+        $structures = '';
+        foreach ($blocks as $i => [$objectid, $type, $title]) {
+            $structures .= '<odePagStructure><odePageId>page-1</odePageId>'
+                . '<odeBlockId>block-' . $i . '</odeBlockId>'
+                . ($title === null ? '' : '<blockName>' . htmlspecialchars($title, ENT_XML1) . '</blockName>')
+                . '<odeComponents><odeComponent><odePageId>page-1</odePageId>'
+                . '<odeBlockId>block-' . $i . '</odeBlockId>'
+                . '<odeIdeviceId>' . $objectid . '</odeIdeviceId>'
+                . '<odeIdeviceTypeName>' . $type . '</odeIdeviceTypeName>'
+                . '<jsonProperties>{"isScorm":1}</jsonProperties>'
+                . '</odeComponent></odeComponents></odePagStructure>';
+        }
+        $xml = '<?xml version="1.0" encoding="UTF-8"?>'
+            . '<ode xmlns="http://www.intef.es/xsd/ode" version="2.0"><odeNavStructures><odeNavStructure>'
+            . '<odePageId>page-1</odePageId><pageName>Page 1</pageName>'
+            . '<odePagStructures>' . $structures . '</odePagStructures>'
+            . '</odeNavStructure></odeNavStructures></ode>';
+        $stage = make_request_directory();
+        file_put_contents($stage . '/content.xml', $xml);
+        file_put_contents($stage . '/index.html', '<html><body></body></html>');
+        $path = make_request_directory() . '/titled.elpx';
+        get_file_packer('application/zip')->archive_to_pathname(
+            ['content.xml' => $stage . '/content.xml', 'index.html' => $stage . '/index.html'],
+            $path
+        );
+        return $path;
+    }
+
+    /**
+     * Returns the activity's per-iDevice gradebook column names keyed by itemnumber.
+     *
+     * @param \stdClass $instance The exelearning instance.
+     * @return array itemnumber => grade item name.
+     */
+    protected function gradebook_column_names(\stdClass $instance): array {
+        global $DB;
+        return $DB->get_records_menu('grade_items', [
+            'itemmodule' => 'exelearning',
+            'iteminstance' => $instance->id,
+        ], 'itemnumber ASC', 'itemnumber, itemname');
+    }
+
+    /**
+     * Per-iDevice gradebook columns are named after the title the author gave each
+     * iDevice, not its internal type (exelearning issue 2459). Columns that would
+     * still share a label on the same page (same title, or no title and same type)
+     * get their stable itemnumber, and an iDevice with no usable title falls back to
+     * its type.
+     */
+    public function test_grade_item_names_use_authored_idevice_titles(): void {
+        $path = $this->make_titled_package([
+            ['idevice-tf-1', 'trueorfalse', 'Verdadero o falso'],
+            ['idevice-tf-2', 'trueorfalse', 'Actividad: crucigrama (conceptos & evidencias)'],
+            ['idevice-guess-1', 'guess', 'Same title'],
+            ['idevice-guess-2', 'guess', 'Same title'],
+            ['idevice-form-1', 'form', null],
+            ['idevice-form-2', 'form', '   '],
+        ]);
+
+        $instance = $this->create_activity([
+            'name' => 'Unit',
+            'packagefilepath' => $path,
+            'grademodel' => EXELEARNING_GRADEMODEL_PERITEM,
+        ]);
+
+        $this->assertSame([
+            1 => 'Unit · Page 1 · Verdadero o falso',
+            2 => 'Unit · Page 1 · Actividad: crucigrama (conceptos & evidencias)',
+            3 => 'Unit · Page 1 · #3 Same title',
+            4 => 'Unit · Page 1 · #4 Same title',
+            5 => 'Unit · Page 1 · #5 form',
+            6 => 'Unit · Page 1 · #6 form',
+        ], $this->gradebook_column_names($instance));
+    }
+
+    /**
+     * Renaming an iDevice only renames its column: the itemnumber, the objectid
+     * mapping and the Moodle grade item (with its grades) stay the same, and the
+     * rename is not reported as a scoring change.
+     */
+    public function test_renaming_idevice_title_keeps_grade_item_identity(): void {
+        global $DB;
+        $instance = $this->create_activity([
+            'name' => 'Unit',
+            'packagefilepath' => $this->make_titled_package([
+                ['idevice-tf-1', 'trueorfalse', 'First title'],
+                ['idevice-guess-1', 'guess', 'Guess it'],
+            ]),
+            'grademodel' => EXELEARNING_GRADEMODEL_PERITEM,
+        ]);
+        $cm = get_coursemodule_from_instance('exelearning', $instance->id);
+        $context = \context_module::instance($cm->id);
+        $before = $DB->get_records_menu('exelearning_grade_item', ['exelearningid' => $instance->id], '', 'objectid, itemnumber');
+        $gradeitemids = $DB->get_records_menu('grade_items', [
+            'itemmodule' => 'exelearning', 'iteminstance' => $instance->id,
+        ], '', 'itemnumber, id');
+
+        $fs = get_file_storage();
+        $fs->delete_area_files($context->id, 'mod_exelearning', 'package');
+        $fs->create_file_from_pathname([
+            'contextid' => $context->id, 'component' => 'mod_exelearning', 'filearea' => 'package',
+            'itemid' => 0, 'filepath' => '/', 'filename' => 'titled.elpx',
+        ], $this->make_titled_package([
+            ['idevice-tf-1', 'trueorfalse', 'Renamed title'],
+            ['idevice-guess-1', 'guess', 'Guess it'],
+        ]));
+        $delta = exelearning_sync_grade_items($instance->id, $context->id);
+
+        $this->assertSame(['added' => 0, 'removed' => 0, 'changed' => 0, 'capped' => 0], $delta);
+        $this->assertEquals(
+            $before,
+            $DB->get_records_menu('exelearning_grade_item', ['exelearningid' => $instance->id], '', 'objectid, itemnumber')
+        );
+        $this->assertEquals($gradeitemids, $DB->get_records_menu('grade_items', [
+            'itemmodule' => 'exelearning', 'iteminstance' => $instance->id,
+        ], '', 'itemnumber, id'));
+        $names = $this->gradebook_column_names($instance);
+        $this->assertSame('Unit · Page 1 · Renamed title', $names[$before['idevice-tf-1']]);
+        $this->assertSame('Unit · Page 1 · Guess it', $names[$before['idevice-guess-1']]);
+    }
+
+    /**
      * activity_has_attempts() reflects the presence of attempt rows.
      */
     public function test_activity_has_attempts(): void {

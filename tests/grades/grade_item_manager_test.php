@@ -64,6 +64,21 @@ final class grade_item_manager_test extends advanced_testcase {
     }
 
     /**
+     * format_name() prefers the authored iDevice title over its type, falls back to
+     * the type for a blank title, and prefixes the itemnumber only when asked to
+     * disambiguate (exelearning issue 2459).
+     */
+    public function test_format_name_uses_title_with_type_fallback(): void {
+        $instance = (object) ['name' => 'My activity'];
+        $titled = (object) ['idevicetype' => 'crossword', 'pagename' => 'Lesson 1', 'title' => 'Key concepts'];
+        $blank = (object) ['idevicetype' => 'crossword', 'pagename' => '', 'title' => "  \n "];
+
+        $this->assertSame('My activity · Lesson 1 · Key concepts', grade_item_manager::format_name($instance, $titled));
+        $this->assertSame('My activity · Lesson 1 · #7 Key concepts', grade_item_manager::format_name($instance, $titled, 7));
+        $this->assertSame('My activity · crossword', grade_item_manager::format_name($instance, $blank));
+    }
+
+    /**
      * apply_category() reparents every grade item of the activity to the configured
      * grade category, and is a no-op when gradecat is 0.
      */

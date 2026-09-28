@@ -41,6 +41,14 @@ implements `core_grades\local\gradeitem\itemnumber_mapping` in `classes/grades/g
 Course-overview column labelling break. Registration stops at the cap — beyond 100 gradable iDevices the extra
 items are not registered as columns (`\mod_exelearning\grades\grade_sync::sync()`), with a developer-level `debugging()` warning.
 
+### Column names
+
+A per-iDevice column is named `activity · page · title`, where the title is the one the author gave the
+iDevice (`blockName` of its block in `content.xml`). An iDevice with no title falls back to its type
+(`trueorfalse`, `guess`…). When two columns on the same page would share a label, both get their stable
+itemnumber (`#3 Quiz`, `#4 Quiz`). The name is display-only: renaming an iDevice renames its column on the next
+sync and never changes its objectid, itemnumber or grades (`grade_item_manager::format_name()`).
+
 ## objectid-stable routing (DEC-5-01)
 
 Grade items are keyed by the package's stable `objectid` (the `<odeIdeviceId>` from `content.xml`), **not** by the

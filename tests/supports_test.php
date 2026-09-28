@@ -32,6 +32,7 @@ require_once($CFG->dirroot . '/mod/exelearning/lib.php');
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @covers     ::exelearning_supports
  * @covers     ::exelearning_get_file_areas
+ * @covers     ::exelearning_is_branded
  */
 final class supports_test extends advanced_testcase {
     /**
@@ -50,6 +51,22 @@ final class supports_test extends advanced_testcase {
         // DEC-69-01: custom completion rule completionstatusrequired is now offered.
         $this->assertTrue(exelearning_supports(FEATURE_COMPLETION_HAS_RULES));
         $this->assertNull(exelearning_supports('a_feature_that_does_not_exist'));
+    }
+
+    /**
+     * The icon is branded so Moodle does not tint it with the assessment purpose
+     * colour, and the monologo carries the official colour.
+     */
+    public function test_activity_icon_is_branded(): void {
+        global $CFG;
+
+        $this->assertTrue(exelearning_is_branded());
+        // Core resolves the flag through this callback on every supported branch (4.5-5.2).
+        $this->assertTrue(component_callback('mod_exelearning', 'is_branded', [], false));
+        $this->assertStringContainsString(
+            'fill="#26ddc7"',
+            file_get_contents($CFG->dirroot . '/mod/exelearning/pix/monologo.svg')
+        );
     }
 
     /**

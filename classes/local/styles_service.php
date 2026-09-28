@@ -136,9 +136,14 @@ class styles_service {
     // Public listing.
 
     /**
-     * List built-in themes discovered from the bundled editor's manifest.
+     * List built-in themes shipped with the bundled editor.
      *
-     * Returns an empty array if no editor is installed yet.
+     * Reads each files/perm/themes/base/<dir>/config.xml instead of
+     * data/bundle.json: editor builds now ship only the zstd-compressed
+     * bundle.json.zst, which PHP cannot decode without the rarely installed
+     * zstd extension. The directory name is the id the editor uses.
+     *
+     * Returns an empty array if no editor is installed.
      *
      * @return array<int, array<string,string>>
      */
@@ -147,38 +152,25 @@ class styles_service {
         if ($active === null) {
             return [];
         }
-        $bundlepath = rtrim($active, '/') . '/data/bundle.json';
-        if (!is_file($bundlepath) || !is_readable($bundlepath)) {
-            return [];
-        }
-        $json = @file_get_contents($bundlepath);
-        if ($json === false || $json === '') {
-            return [];
-        }
-        $data = json_decode($json, true);
-        if (!is_array($data) || empty($data['themes'])) {
-            return [];
-        }
-        $themes = $data['themes'];
-        // The bundle.json serializes `themes: { themes: [..] }`; accept flat too.
-        if (is_array($themes) && isset($themes['themes']) && is_array($themes['themes'])) {
-            $themes = $themes['themes'];
-        }
-        if (!is_array($themes)) {
-            return [];
-        }
         $out = [];
-        foreach ($themes as $theme) {
-            if (!is_array($theme) || empty($theme['name'])) {
+        foreach (glob(rtrim($active, '/') . '/files/perm/themes/base/*/config.xml') ?: [] as $configpath) {
+            $source = @file_get_contents($configpath);
+            if ($source === false) {
                 continue;
             }
+            try {
+                $meta = self::parse_config_xml($source);
+            } catch (\moodle_exception $e) {
+                continue;
+            }
+            $id = basename(dirname($configpath));
             $out[] = [
-                'id' => (string) $theme['name'],
-                'name' => (string) $theme['name'],
-                'title' => (string) ($theme['title'] ?? $theme['name']),
-                'version' => (string) ($theme['version'] ?? ''),
-                'description' => (string) ($theme['description'] ?? ''),
-                'author' => (string) ($theme['author'] ?? ''),
+                'id' => $id,
+                'name' => $id,
+                'title' => $meta['title'],
+                'version' => $meta['version'],
+                'description' => $meta['description'],
+                'author' => $meta['author'],
             ];
         }
         return $out;

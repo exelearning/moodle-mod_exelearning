@@ -478,27 +478,71 @@ final class styles_service_test extends advanced_testcase {
     }
 
     /**
-     * list_builtin_themes() parses the active editor's data/bundle.json manifest.
+     * Build a bundled editor whose layout matches the release ZIP: themes live
+     * under files/perm/themes/base/ and data/ only ships bundle.json.zst.
+     *
+     * @param array $themes Map of theme directory name to config.xml contents (null writes no config.xml).
+     * @return string The bundled editor directory.
      */
-    public function test_list_builtin_themes_from_bundle(): void {
+    private function make_bundled_editor(array $themes): string {
         global $CFG;
-        $this->resetAfterTest();
-
-        // Point the resolver at a bundled editor carrying a themes manifest (DEC-106-01).
         $src = make_temp_directory('mod_exelearning/bt-' . random_string(6)) . '/static';
         make_writable_directory($src . '/app');
         make_writable_directory($src . '/data');
         file_put_contents($src . '/index.html', 'x');
-        file_put_contents($src . '/data/bundle.json', json_encode([
-            'themes' => ['themes' => [
-                ['name' => 'intef', 'title' => 'INTEF', 'version' => '1.0'],
-                ['name' => 'base', 'title' => 'Base'],
-            ]],
-        ]));
+        file_put_contents($src . '/data/bundle.json.zst', "\x28\xb5\x2f\xfd");
+        foreach ($themes as $dir => $xml) {
+            make_writable_directory($src . '/files/perm/themes/base/' . $dir);
+            if ($xml !== null) {
+                file_put_contents($src . '/files/perm/themes/base/' . $dir . '/config.xml', $xml);
+            }
+        }
         $CFG->mod_exelearning_bundled_editor_dir = $src;
+        return $src;
+    }
 
-        $ids = array_column(styles_service::list_builtin_themes(), 'id');
-        $this->assertContains('intef', $ids);
-        $this->assertContains('base', $ids);
+    /**
+     * list_builtin_themes() reads each bundled theme's config.xml, so it works
+     * with editor builds that only ship the compressed bundle.json.zst.
+     */
+    public function test_list_builtin_themes_reads_bundled_theme_configs(): void {
+        $this->resetAfterTest();
+        $this->make_bundled_editor([
+            'base' => '<theme><name>base</name><title>Default</title><version>20260913</version>'
+                . '<author>eXeLearning.net</author></theme>',
+            'neo' => '<theme><name>neo</name><title>Neo</title></theme>',
+        ]);
+
+        $themes = styles_service::list_builtin_themes();
+
+        $this->assertSame(['base', 'neo'], array_column($themes, 'id'));
+        $this->assertSame('Default', $themes[0]['title']);
+        $this->assertSame('20260913', $themes[0]['version']);
+        $this->assertSame('eXeLearning.net', $themes[0]['author']);
+    }
+
+    /**
+     * list_builtin_themes() skips theme directories without a readable config.xml.
+     */
+    public function test_list_builtin_themes_skips_invalid_theme_dirs(): void {
+        $this->resetAfterTest();
+        $this->make_bundled_editor([
+            'broken' => '<theme><title>No name</title></theme>',
+            'empty' => null,
+            'zen' => '<theme><name>zen</name><title>Zen</title></theme>',
+        ]);
+
+        $this->assertSame(['zen'], array_column(styles_service::list_builtin_themes(), 'id'));
+    }
+
+    /**
+     * list_builtin_themes() returns nothing when the bundled editor is absent.
+     */
+    public function test_list_builtin_themes_without_editor(): void {
+        global $CFG;
+        $this->resetAfterTest();
+        $CFG->mod_exelearning_bundled_editor_dir = make_temp_directory('mod_exelearning/none-' . random_string(6));
+
+        $this->assertSame([], styles_service::list_builtin_themes());
     }
 }

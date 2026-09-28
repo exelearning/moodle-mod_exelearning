@@ -100,17 +100,26 @@ final class grade_item_manager {
     }
 
     /**
-     * Human-readable label for the gradebook column of an iDevice.
+     * Human-readable label for the gradebook column of an iDevice:
+     * "activity · page · title", where the title is the one the author gave the
+     * iDevice, or its type when it has none (exelearning issue 2459). When several
+     * columns would share that label, the caller passes the stable itemnumber, which
+     * prefixes the title ("#3 title") so the columns stay distinguishable.
      *
      * @param stdClass $instance
      * @param stdClass $detected
+     * @param int|null $itemnumber Itemnumber to show, or null when the label is unique.
      * @return string
      */
-    public static function format_name(stdClass $instance, stdClass $detected): string {
-        $type = clean_param($detected->idevicetype, PARAM_TEXT);
+    public static function format_name(stdClass $instance, stdClass $detected, ?int $itemnumber = null): string {
+        $title = trim(clean_param((string) ($detected->title ?? ''), PARAM_TEXT));
+        $label = ($title !== '') ? $title : clean_param($detected->idevicetype, PARAM_TEXT);
+        if ($itemnumber !== null) {
+            $label = '#' . $itemnumber . ' ' . $label;
+        }
         $page = trim((string) ($detected->pagename ?? ''));
         $base = clean_param($instance->name, PARAM_NOTAGS);
-        $name = ($page !== '') ? ($base . ' · ' . $page . ' · ' . $type) : ($base . ' · ' . $type);
+        $name = ($page !== '') ? ($base . ' · ' . $page . ' · ' . $label) : ($base . ' · ' . $label);
         // Clamp to the exelearning_grade_item.name column width (char 255). The page
         // title comes from author-controlled content.xml and is unbounded; combined
         // with an up-to-255-char activity name it can exceed 255 and throw a

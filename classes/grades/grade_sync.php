@@ -165,8 +165,9 @@ final class grade_sync {
             [$exelearningid]
         );
 
-        $seen = [];
-        $capwarned = false;
+        // Labels shared by several columns (same page and same title, or no title and
+        // same type) get the stable itemnumber, so a teacher can tell them apart.
+        $labelcount = [];
         foreach ($detected as $d) {
             // Clamp the package-controlled identifiers to their column widths before
             // they are used as the $existing lookup key or written to the DB, so an
@@ -178,8 +179,14 @@ final class grade_sync {
             $d->pageid      = ($d->pageid === null)
                 ? null
                 : core_text::substr((string) $d->pageid, 0, 191);
+            $label = grade_item_manager::format_name($instance, $d);
+            $labelcount[$label] = ($labelcount[$label] ?? 0) + 1;
+        }
 
-            $name = grade_item_manager::format_name($instance, $d);
+        $seen = [];
+        $capwarned = false;
+        foreach ($detected as $d) {
+            $shared = $labelcount[grade_item_manager::format_name($instance, $d)] > 1;
             $now = time();
 
             $newhash = $d->contenthash ?? null;
@@ -195,6 +202,7 @@ final class grade_sync {
                 if (($oldhash !== null && $oldhash !== $newhash) || (int) $row->deleted === 1) {
                     $delta['changed']++;
                 }
+                $name = grade_item_manager::format_name($instance, $d, $shared ? (int) $row->itemnumber : null);
                 $row->name         = $name;
                 $row->idevicetype  = $d->idevicetype;
                 $row->pageid       = $d->pageid;
@@ -225,6 +233,7 @@ final class grade_sync {
                 }
                 $nextnum++;
                 $itemnumber = $nextnum;
+                $name = grade_item_manager::format_name($instance, $d, $shared ? $itemnumber : null);
                 $delta['added']++;
                 $DB->insert_record('exelearning_grade_item', (object) [
                     'exelearningid' => $exelearningid,
