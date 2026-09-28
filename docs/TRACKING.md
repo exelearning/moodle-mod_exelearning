@@ -79,6 +79,12 @@ persists**: `ingest()` returns before any gradebook write
   same page (`js/scorm_tracker.js`, exelearning issue 2458). Opening or reviewing the
   activity creates no attempt, consumes no allowed attempt and changes no grade; a
   submitted 0 is still recorded like any other score.
+- **Only the iDevices the learner touched are sent.** Once the attempt has started,
+  the seed of every other gradable iDevice on the page is still in `cmi.suspend_data`.
+  The tracker records which `.idevice_node` each interaction landed in and posts
+  `itemscores` for those iDevices only (exelearning issue 2481). An untouched iDevice
+  gets no row in that attempt, so under "Last attempt" it keeps its previous grade,
+  or stays empty if it was never answered.
 - **Flat table.** `exelearning_attempt` holds one row per
   `(exelearningid, userid, attempt, itemnumber)`; `itemnumber=0` is the overall, `>0`
   is an iDevice (`db/install.xml:71-82`). `record_item()` upserts so repeated

@@ -438,19 +438,39 @@
         // score is being written can start the attempt.
         var interactedDoc = null;
         var watchedDocs = [];
+        // The iDevices (by objectid) the learner interacted with during this visit.
+        // The runtime seeds every gradable iDevice on the page with 0, and that seed
+        // stays in suspend_data, so only touched iDevices are sent (exelearning
+        // issue 2481): an untouched one keeps its previous grade, or stays empty.
+        var touched = {};
 
         // Record a learner interaction when it happened inside an iDevice. Navigation
         // and clicks elsewhere in the package do not answer anything.
         function noteInteraction(target) {
-            if (target && typeof target.closest === 'function' && target.closest('.idevice_node')) {
+            var node = target && typeof target.closest === 'function' && target.closest('.idevice_node');
+            if (node) {
                 interactedDoc = target.ownerDocument;
+                if (node.id) { touched[node.id] = true; }
             }
+        }
+
+        // The item scores to send: every captured score when interaction gating is
+        // off, otherwise only those of the iDevices the learner touched.
+        function touchedItemScores() {
+            if (!awaitInteraction) { return itemScores; }
+            var out = {};
+            for (var oid in itemScores) {
+                if (itemScores.hasOwnProperty(oid) && touched[oid]) { out[oid] = itemScores[oid]; }
+            }
+            return out;
         }
 
         // Listen for the learner's own input on a package page. The iframe loads a new
         // document per package page, so this runs whenever the SCO talks to the API.
         function watchDocument(doc) {
-            if (started || !doc || typeof doc.addEventListener !== 'function'
+            // Keep watching after the attempt starts: later pages still need to know
+            // which of their iDevices the learner touched.
+            if (!awaitInteraction || !doc || typeof doc.addEventListener !== 'function'
                     || watchedDocs.indexOf(doc) !== -1) {
                 return;
             }
@@ -477,7 +497,7 @@
             // keep the values buffered for the first real commit.
             if (!dirty || !started) { return true; }
             var snapshot = JSON.stringify(cmi);
-            var payload = buildPayload(cmid, session, cmi, itemScores, sesskey);
+            var payload = buildPayload(cmid, session, cmi, touchedItemScores(), sesskey);
             try {
                 var xhr = xhrFactory();
                 // Synchronous in LMSFinish (student closes the tab); async otherwise.

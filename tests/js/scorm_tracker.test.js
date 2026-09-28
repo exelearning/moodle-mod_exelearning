@@ -771,3 +771,90 @@ describe('parseSuspend (versioned exe12 payload, core PR #2209)', () => {
         expect(parseSuspend('1. "Quiz"; score: 60%; weighted: 30%.')[1].title).toBe('Quiz');
     });
 });
+
+describe('createScormApi: only the iDevices the learner touched are graded', () => {
+    // Two gradable iDevices on one page, as in the demo activity (True/False + Guess).
+    // On load the runtime seeds both with 0 in a single suspend_data write.
+    const SEED = '1. "Verdadero o falso"; Puntuación: 0%; Peso: 50%.\t'
+        + '2. "Adivina"; Puntuación: 0%; Peso: 50%';
+    let scheduled;
+    function config(xhr) {
+        scheduled = null;
+        return {
+            cmid: 42,
+            trackurl: 'https://example.test/track.php',
+            session: 'tok',
+            bindUnload: false,
+            getScoringDocument: () => document,
+            xhrFactory: () => xhr,
+            setTimeout: (fn) => { scheduled = fn; return 1; },
+            clearTimeout: () => { scheduled = null; },
+        };
+    }
+    function seedOnLoad(api) {
+        api.LMSInitialize('');
+        api.LMSSetValue('cmi.suspend_data', SEED);
+        api.LMSSetValue('cmi.core.score.raw', '0');
+    }
+    beforeEach(() => {
+        document.body.innerHTML = '<div class="idevice_node" id="ide-tf"><button id="tf">Check</button></div>'
+            + '<div class="idevice_node" id="ide-guess"><button id="guess">Check</button></div>';
+    });
+
+    it('does not send the seeded 0 of an iDevice the learner never touched (issue 2481)', () => {
+        const xhr = makeXhr(200);
+        const tracker = createScormApi(config(xhr));
+        seedOnLoad(tracker.api);
+        // The learner plays only the Guess iDevice and gets it right.
+        tracker.noteInteraction(document.getElementById('guess'));
+        tracker.api.LMSSetValue('cmi.suspend_data', '1. "Verdadero o falso"; Puntuación: 0%; Peso: 50%.\t'
+            + '2. "Adivina"; Puntuación: 100%; Peso: 50%');
+        tracker.api.LMSSetValue('cmi.core.score.raw', '50');
+        scheduled();
+        expect(xhr.calls).toHaveLength(1);
+        expect(JSON.parse(xhr.lastPayload).itemscores).toEqual({
+            'ide-guess': { scorepct: 100, weighted: 50, title: 'Adivina' },
+        });
+    });
+
+    it('sends a legitimate 0 for the second iDevice once the learner answers it too', () => {
+        const xhr = makeXhr(200);
+        const tracker = createScormApi(config(xhr));
+        seedOnLoad(tracker.api);
+        tracker.noteInteraction(document.getElementById('guess'));
+        tracker.api.LMSSetValue('cmi.suspend_data', '1. "Verdadero o falso"; Puntuación: 0%; Peso: 50%.\t'
+            + '2. "Adivina"; Puntuación: 100%; Peso: 50%');
+        scheduled();
+        // Then answers the True/False wrongly: its value stays 0, identical to the seed.
+        tracker.noteInteraction(document.getElementById('tf'));
+        tracker.api.LMSSetValue('cmi.suspend_data', '1. "Verdadero o falso"; Puntuación: 0%; Peso: 50%.\t'
+            + '2. "Adivina"; Puntuación: 100%; Peso: 50%');
+        scheduled();
+        expect(JSON.parse(xhr.lastPayload).itemscores).toEqual({
+            'ide-tf': { scorepct: 0, weighted: 50, title: 'Verdadero o falso' },
+            'ide-guess': { scorepct: 100, weighted: 50, title: 'Adivina' },
+        });
+    });
+
+    it('keeps tracking touched iDevices on later pages after the attempt has started', () => {
+        const xhr = makeXhr(200);
+        let current = document;
+        const tracker = createScormApi({ ...config(xhr), getScoringDocument: () => current });
+        seedOnLoad(tracker.api);
+        tracker.noteInteraction(document.getElementById('guess'));
+        tracker.api.LMSSetValue('cmi.suspend_data', '1. "Verdadero o falso"; Puntuación: 0%; Peso: 50%.\t'
+            + '2. "Adivina"; Puntuación: 100%; Peso: 50%');
+        scheduled();
+        // Page 2 carries one gradable iDevice; the learner answers it.
+        current = document.implementation.createHTMLDocument('page 2');
+        current.body.innerHTML = '<div class="idevice_node" id="ide-p2"><button id="p2">Check</button></div>';
+        const listeners = {};
+        current.addEventListener = (type, fn) => { listeners[type] = fn; };
+        tracker.api.LMSSetValue('cmi.suspend_data', '1. "Quiz"; Puntuación: 0%; Peso: 100%');
+        // Real input on the new page must still be watched after the attempt started.
+        listeners.pointerdown({ isTrusted: true, target: current.getElementById('p2') });
+        tracker.api.LMSSetValue('cmi.suspend_data', '1. "Quiz"; Puntuación: 80%; Peso: 100%');
+        scheduled();
+        expect(Object.keys(JSON.parse(xhr.lastPayload).itemscores).sort()).toEqual(['ide-guess', 'ide-p2']);
+    });
+});

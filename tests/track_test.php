@@ -615,6 +615,39 @@ final class track_test extends advanced_testcase {
     }
 
     /**
+     * An iDevice missing from itemscores keeps its grade under "Last attempt".
+     *
+     * Contract relied on by the tracker (exelearning issue 2481): it only sends the
+     * iDevices the learner touched during a visit, so an attempt that scores one
+     * iDevice must leave every other iDevice's last grade alone.
+     */
+    public function test_ingest_leaves_items_missing_from_itemscores_untouched(): void {
+        [$instance, $student] = $this->create_activity_with_student([
+            'grademodel'  => EXELEARNING_GRADEMODEL_PERITEM,
+            'grademethod' => \mod_exelearning\local\attempts::GRADE_LAST,
+        ]);
+        [$course, $cm] = $this->course_and_cm($instance);
+        $tf = $this->objectid_for($instance, 1);
+        $guess = $this->objectid_for($instance, 2);
+        $submit = function (string $session, array $itemscores) use ($instance, $course, $cm, $student): void {
+            $result = track::ingest($instance, $course, $cm, $student->id, [
+                'session' => $session,
+                // Raw matches the overall recomputed from the one scored iDevice, so
+                // ingest() does not report a divergence (DEC-6-01).
+                'cmi' => ['cmi.core.score.raw' => '100', 'cmi.core.score.max' => '100'],
+                'itemscores' => $itemscores,
+            ], false);
+            $this->assertTrue($result['ok']);
+        };
+
+        $submit('visitTf', [$tf => ['scorepct' => 100.0, 'weighted' => 50.0, 'title' => 'TF']]);
+        $submit('visitGuess', [$guess => ['scorepct' => 100.0, 'weighted' => 50.0, 'title' => 'Guess']]);
+
+        $this->assertEqualsWithDelta(100.0, $this->published_grade($instance, $student->id, 1), 0.0001);
+        $this->assertEqualsWithDelta(100.0, $this->published_grade($instance, $student->id, 2), 0.0001);
+    }
+
+    /**
      * With the master grading switch off (DEC-13-07), ingest() records NOTHING
      * (DEC-126-01).
      *
