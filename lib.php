@@ -79,6 +79,19 @@ function exelearning_supports($feature) {
 }
 
 /**
+ * Whether the activity icon is branded.
+ *
+ * Branded icons keep their own colours: Moodle skips the purpose colour filter
+ * that would otherwise tint the monologo pink for MOD_PURPOSE_ASSESSMENT
+ * (exelearning/exelearning issue 2453). The purpose itself stays unchanged.
+ *
+ * @return bool Always true, so pix/monologo.svg renders in the official colour.
+ */
+function exelearning_is_branded(): bool {
+    return true;
+}
+
+/**
  * Fill the instance settings a caller may omit with their defaults.
  *
  * Shared by add and update so both write the same NOT NULL defaults; only
