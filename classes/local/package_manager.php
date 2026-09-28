@@ -138,7 +138,8 @@ final class package_manager {
         // The gradesyncrev marker keeps content-only packages from being rescanned on
         // every view: grade_sync stamps max(revision, 1) once a revision is scanned.
         $needssync = (int) $instance->gradesyncrev < max((int) $instance->revision, 1);
-        if (($entry && !$needssync) || !self::get_stored_package($contextid)) {
+        $healthy = $entry && !$needssync && self::has_bridge($contextid, (int) $instance->revision);
+        if ($healthy || !self::get_stored_package($contextid)) {
             return $entry;
         }
         $lock = self::get_package_lock((int) $instance->id);
@@ -150,7 +151,10 @@ final class package_manager {
             $current = $DB->get_record('exelearning', ['id' => $instance->id], 'id, revision, gradesyncrev', MUST_EXIST);
             $instance->revision = (int) $current->revision;
             $entry = $fs->get_file($contextid, 'mod_exelearning', 'content', $instance->revision, '/', 'index.html') ?: null;
-            if (!$entry) {
+            // Packages extracted before the secure-mode bridge client existed (DEC-80-02)
+            // have index.html but no libs/exe_scorm_bridge.js: re-extract them once so
+            // the bridge scripts are copied and injected.
+            if (!$entry || !self::has_bridge($contextid, $instance->revision)) {
                 try {
                     self::extract_stored($contextid, $instance->revision);
                     $entry = $fs->get_file($contextid, 'mod_exelearning', 'content', $instance->revision, '/', 'index.html')
@@ -169,6 +173,24 @@ final class package_manager {
         } finally {
             $lock->release();
         }
+    }
+
+    /**
+     * Whether the extracted revision carries the secure-mode bridge client (DEC-80-02).
+     *
+     * @param int $contextid Module context id.
+     * @param int $revision Content revision.
+     * @return bool
+     */
+    private static function has_bridge(int $contextid, int $revision): bool {
+        return (bool) get_file_storage()->get_file(
+            $contextid,
+            'mod_exelearning',
+            'content',
+            $revision,
+            '/libs/',
+            'exe_scorm_bridge.js'
+        );
     }
 
     /**
@@ -411,14 +433,23 @@ final class package_manager {
             }
             $runtimepaths[$shimname] = $assetpath;
         }
-        foreach ($runtimepaths as $shimname => $assetpath) {
+        // Refresh the opaque viewer bridge and media client alongside the runtime (DEC-80-01).
+        $clientassets = $runtimepaths + [
+            'scorm_tracker.js' => __DIR__ . '/../../js/scorm_tracker.js',
+            'exe_scorm_bridge.js' => __DIR__ . '/../../js/scorm_bridge_shim.js',
+            'exe_embed_shim.js' => __DIR__ . '/../../js/exe_external_media/exe-external-media-child.min.js',
+        ];
+        foreach ($clientassets as $destname => $assetpath) {
+            if (!is_file($assetpath)) {
+                continue;
+            }
             $present = $fs->get_file(
                 $context->id,
                 'mod_exelearning',
                 'content',
                 (int) $data->revision,
                 '/libs/',
-                $shimname
+                $destname
             );
             if ($present) {
                 $present->delete();
@@ -429,7 +460,7 @@ final class package_manager {
                 'filearea'  => 'content',
                 'itemid'    => (int) $data->revision,
                 'filepath'  => '/libs/',
-                'filename'  => $shimname,
+                'filename'  => $destname,
             ], $assetpath);
         }
 
