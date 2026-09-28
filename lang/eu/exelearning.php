@@ -210,6 +210,7 @@ $string['gradepass_help'] = '~Gainditzeko behar den gutxieneko kalifikazio oroko
 $string['gradesetchangedwarning'] = '~Jarduera honen eduki kalifikagarria aldatu da eta ikasle batzuek jada saiakerak dituzte. Lehendik dauden kalifikazioak zeuden bezala gordetzen dira eta ez dira eduki berriarekin birkalkulatzen. Aldaketek kalifikazio horiek engainagarri bihurtzen badituzte, ezabatu eragindako saiakerak birkalkulatzeko.';
 $string['gradingheading'] = '~Kalifikazioa';
 $string['intro'] = '~Deskribapena';
+$string['lmsexportnonavigation'] = '~Jarduera hau eXeLearning-en SCORM edo IMS esportazio batetik instalatu zen, eta ez du nabigazio-menurik. Ireki "Editatu eXeLearning-ekin" aukerarekin eta sakatu "Gorde Moodle-n" webgune gisa bere menuarekin berriro sortzeko.';
 $string['maxattempt'] = '~Baimendutako saialdiak';
 $string['maxattempt_help'] = '~Ikasle batek bidal dezakeen gehienezko saialdi-kopurua. Ezarri 0 saialdi mugagabeetarako. Saialdi bat jardueraren orri-karga saio bati dagokio.';
 $string['maxattemptsreached'] = '~Jarduera honetarako baimendutako saialdi guztiak erabili dituzu.';

@@ -210,6 +210,7 @@ $string['gradepass_help'] = '~La qualificació global mínima necessària per ap
 $string['gradesetchangedwarning'] = '~El contingut qualificable d\'aquesta activitat ha canviat i alguns estudiants ja tenen intents. Les qualificacions existents es conserven tal com estaven i no es recalculen amb el nou contingut. Si els canvis fan que aquestes qualificacions siguin enganyoses, elimineu els intents afectats per recalcular-les.';
 $string['gradingheading'] = '~Qualificació';
 $string['intro'] = '~Descripció';
+$string['lmsexportnonavigation'] = '~Aquesta activitat es va instal·lar a partir d\'una exportació SCORM o IMS d\'eXeLearning, que no té menú de navegació. Obre-la amb "Edita amb eXeLearning" i fes clic a "Desa a Moodle" per regenerar-la com a lloc web amb el seu menú.';
 $string['maxattempt'] = '~Intents permesos';
 $string['maxattempt_help'] = '~Nombre màxim d\'intents que un estudiant pot enviar. Establiu-ho a 0 per a intents il·limitats. Un intent correspon a una sessió de càrrega de pàgina de l\'activitat.';
 $string['maxattemptsreached'] = '~Heu utilitzat tots els intents permesos per a aquesta activitat.';

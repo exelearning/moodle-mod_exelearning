@@ -206,6 +206,7 @@ $string['gradepass_help']  = 'The minimum overall grade required to pass. When t
 $string['gradesetchangedwarning'] = 'The gradable content of this activity changed and some students already have attempts. Existing grades are kept as they were and are not recalculated against the new content. If the changes make those grades misleading, delete the affected attempts to recalculate them.';
 $string['gradingheading'] = 'Grading';
 $string['intro']         = 'Description';
+$string['lmsexportnonavigation'] = 'This activity was installed from an eXeLearning SCORM or IMS export, which has no navigation menu. Open it with "Edit with eXeLearning" and click "Save to Moodle" to rebuild it as a website with its menu.';
 $string['maxattempt']         = 'Attempts allowed';
 $string['maxattempt_help']    = 'Maximum number of attempts a student may submit. Set to 0 for unlimited attempts. One attempt corresponds to one page-load session of the activity.';
 $string['maxattemptsreached'] = 'You have used all your allowed attempts for this activity.';

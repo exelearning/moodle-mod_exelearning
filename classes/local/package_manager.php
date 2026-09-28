@@ -260,6 +260,23 @@ final class package_manager {
     }
 
     /**
+     * Whether the installed content is an LMS export (SCORM or IMS) of eXeLearning.
+     *
+     * Those exports ship content.xml, so the upload form and the sibling migration
+     * accept them, but their pages carry no website menu: the exporter leaves the
+     * navigation to the LMS (exelearning issue 2477). Saving the activity from the
+     * embedded editor rebuilds it as a website with its menu. An editor-saved .elpx
+     * never contains the root imsmanifest.xml that marks them.
+     *
+     * @param int $contextid Module context id.
+     * @param int $revision Installed content revision.
+     * @return bool
+     */
+    public static function content_is_lms_export(int $contextid, int $revision): bool {
+        return get_file_storage()->file_exists($contextid, 'mod_exelearning', 'content', $revision, '/', 'imsmanifest.xml');
+    }
+
+    /**
      * Locate the stored ELPX in the 'package' filearea WITHOUT assuming an itemid.
      *
      * The form upload stores it at itemid=0, but programmatic paths leave it at a

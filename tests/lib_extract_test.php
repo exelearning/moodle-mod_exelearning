@@ -126,6 +126,43 @@ final class lib_extract_test extends advanced_testcase {
     }
 
     /**
+     * A SCORM export installs pages without the website menu (exelearning issue 2477).
+     *
+     * eXeLearning's SCORM exporter leaves the navigation out of the HTML and leaves it
+     * to the LMS, but still ships content.xml, so the plugin accepts it. The installed
+     * content is recognised by its root imsmanifest.xml; an editor-saved .elpx has none.
+     *
+     * @dataProvider lms_export_provider
+     * @param string $fixture Package fixture, relative to the plugin root.
+     * @param bool $expected Whether the installed content is an LMS export.
+     */
+    public function test_content_is_lms_export(string $fixture, bool $expected): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->setAdminUser();
+
+        $course = $this->getDataGenerator()->create_course();
+        $instance = $this->getDataGenerator()->get_plugin_generator('mod_exelearning')
+            ->create_instance(['course' => $course->id, 'packagefilepath' => $fixture]);
+        $context = \context_module::instance(get_coursemodule_from_instance('exelearning', $instance->id)->id);
+        $revision = (int) $DB->get_field('exelearning', 'revision', ['id' => $instance->id]);
+
+        $this->assertSame($expected, \mod_exelearning\local\package_manager::content_is_lms_export($context->id, $revision));
+    }
+
+    /**
+     * Packages with and without the website navigation.
+     *
+     * @return array
+     */
+    public static function lms_export_provider(): array {
+        return [
+            'SCORM 1.2 export' => ['research/fixtures/scorm/actividad-evaluable_scorm.zip', true],
+            'editor .elpx'     => ['research/fixtures/elpx/actividad-evaluable.elpx', false],
+        ];
+    }
+
+    /**
      * exelearning_get_stored_package() returns the stored ELPX regardless of the
      * itemid it was saved under, and exelearning_package_has_content_xml() detects
      * the eXeLearning content manifest inside it.

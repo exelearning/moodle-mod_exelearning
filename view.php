@@ -173,6 +173,15 @@ if (!$mainfile) {
         );
     }
 } else {
+    // An eXeLearning SCORM/IMS export has no website menu until it is saved from the
+    // editor (exelearning issue 2477): tell whoever can do that.
+    $islmsexport = \mod_exelearning\local\package_manager::content_is_lms_export($context->id, (int) $exelearning->revision);
+    if ($showeditorbutton && $islmsexport) {
+        echo $OUTPUT->notification(
+            get_string('lmsexportnonavigation', 'mod_exelearning'),
+            \core\output\notification::NOTIFY_WARNING
+        );
+    }
     $iframeurl = moodle_url::make_pluginfile_url(
         $context->id,
         'mod_exelearning',

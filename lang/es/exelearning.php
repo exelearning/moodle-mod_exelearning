@@ -210,6 +210,7 @@ $string['gradepass_help'] = '~La calificación global mínima necesaria para apr
 $string['gradesetchangedwarning'] = '~El contenido calificable de esta actividad ha cambiado y algunos estudiantes ya tienen intentos. Las calificaciones existentes se conservan tal cual y no se recalculan con el nuevo contenido. Si los cambios hacen que esas calificaciones sean engañosas, elimine los intentos afectados para recalcularlas.';
 $string['gradingheading'] = '~Calificación';
 $string['intro'] = '~Descripción';
+$string['lmsexportnonavigation'] = '~Esta actividad se instaló a partir de una exportación SCORM o IMS de eXeLearning, que no tiene menú de navegación. Ábrela con "Editar con eXeLearning" y pulsa "Guardar en Moodle" para regenerarla como sitio web con su menú.';
 $string['maxattempt'] = '~Intentos permitidos';
 $string['maxattempt_help'] = '~Número máximo de intentos que un estudiante puede enviar. Establézcalo en 0 para intentos ilimitados. Un intento corresponde a una sesión de carga de página de la actividad.';
 $string['maxattemptsreached'] = '~Ha utilizado todos los intentos permitidos para esta actividad.';
