@@ -72,6 +72,13 @@ persists**: `ingest()` returns before any gradebook write
   (`random_string(20)`, `view.php:531`) and stamps every auto-commit of that page
   view with it. `resolve_attempt_number()` reuses the attempt for a known token,
   else allocates `MAX(attempt)+1` (`classes/local/attempts.php:182-206`).
+- **An attempt starts when the learner answers.** The package's runtime seeds every
+  gradable iDevice with a score of 0 as soon as a page loads, which is byte-identical
+  to a real answer worth 0. The tracker therefore sends nothing until a score is
+  written after a trusted pointer or keyboard interaction inside an iDevice of that
+  same page (`js/scorm_tracker.js`, exelearning issue 2458). Opening or reviewing the
+  activity creates no attempt, consumes no allowed attempt and changes no grade; a
+  submitted 0 is still recorded like any other score.
 - **Flat table.** `exelearning_attempt` holds one row per
   `(exelearningid, userid, attempt, itemnumber)`; `itemnumber=0` is the overall, `>0`
   is an iDevice (`db/install.xml:71-82`). `record_item()` upserts so repeated

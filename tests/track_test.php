@@ -578,6 +578,43 @@ final class track_test extends advanced_testcase {
     }
 
     /**
+     * A submitted score of 0 is a real result (exelearning issue 2458): the fix for
+     * page-load seeds lives in the tracker, which simply sends nothing until the
+     * learner answers, so ingest() must keep recording a 0 it does receive. Under
+     * "Last attempt" a learner who scored 100 and then genuinely scores 0 gets 0.
+     */
+    public function test_ingest_records_a_submitted_zero_under_last_attempt(): void {
+        [$instance, $student] = $this->create_activity_with_student([
+            'grademodel'  => EXELEARNING_GRADEMODEL_PERITEM,
+            'grademethod' => \mod_exelearning\local\attempts::GRADE_LAST,
+            'maxattempt'  => 2,
+        ]);
+        [$course, $cm] = $this->course_and_cm($instance);
+        $obj1 = $this->objectid_for($instance, 1);
+        $submit = function (string $session, float $scorepct) use ($instance, $course, $cm, $student, $obj1): array {
+            return track::ingest($instance, $course, $cm, $student->id, [
+                'session' => $session,
+                'cmi' => [
+                    'cmi.core.score.raw' => (string) $scorepct,
+                    'cmi.core.score.max' => '100',
+                    'cmi.core.lesson_status' => $scorepct >= 50 ? 'passed' : 'failed',
+                ],
+                'itemscores' => [$obj1 => ['scorepct' => $scorepct, 'weighted' => 100.0, 'title' => 'TF']],
+            ], false);
+        };
+
+        $first = $submit('sessionRight', 100.0);
+        $this->assertTrue($first['ok']);
+        $this->assertEqualsWithDelta(100.0, $this->published_grade($instance, $student->id, 1), 0.0001);
+
+        $second = $submit('sessionWrong', 0.0);
+        $this->assertTrue($second['ok']);
+        $this->assertSame(2, $second['attempt']);
+        $this->assertSame(2, \mod_exelearning\local\attempts::count_user_attempts($instance->id, $student->id));
+        $this->assertEqualsWithDelta(0.0, $this->published_grade($instance, $student->id, 1), 0.0001);
+    }
+
+    /**
      * With the master grading switch off (DEC-13-07), ingest() records NOTHING
      * (DEC-126-01).
      *
