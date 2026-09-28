@@ -80,8 +80,27 @@ final class activity_builder_test extends advanced_testcase {
         $this->assertSame(1, (int) $cm->completionview);
         $sectionnum = (int) $DB->get_field('course_sections', 'section', ['id' => $cm->section]);
         $this->assertSame(2, $sectionnum);
-        $this->assertSame('Kept metadata', $target->instance->name);
+        $this->assertSame('Kept metadata (migrated)', $target->instance->name);
         $this->assertSame('<p>Original intro</p>', $target->instance->intro);
+    }
+
+    /**
+     * A source name already at the column limit is shortened, never the suffix, so the
+     * target stays a valid activity name and still reads as the migrated copy.
+     */
+    public function test_long_source_name_is_shortened_to_keep_the_suffix(): void {
+        $this->resetAfterTest();
+        $this->setAdminUser();
+        $course = $this->getDataGenerator()->create_course();
+        $longname = str_repeat('Ñandú ', 42) . 'end';
+        $this->assertSame(255, \core_text::strlen($longname));
+        $source = $this->make_source_row(['course' => (int) $course->id, 'name' => $longname]);
+
+        $target = activity_builder::create_from_source($source, EXELEARNING_GRADEMODEL_PERITEM);
+
+        $this->assertSame(255, \core_text::strlen($target->instance->name));
+        $this->assertStringEndsWith(' (migrated)', $target->instance->name);
+        $this->assertStringStartsWith('Ñandú Ñandú', $target->instance->name);
     }
 
     /**

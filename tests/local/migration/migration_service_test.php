@@ -19,6 +19,7 @@ namespace mod_exelearning\local\migration;
 use advanced_testcase;
 use mod_exelearning\local\migration\source\classification;
 use mod_exelearning\local\migration\source\exescorm_source;
+use mod_exelearning\local\migration\source\exeweb_source;
 use mod_exelearning\local\migration\source\source_interface;
 use mod_exelearning\tests\helper_trait;
 use mod_exelearning\tests\stub_source;
@@ -408,5 +409,62 @@ final class migration_service_test extends advanced_testcase {
         $generator = $this->getDataGenerator()->get_plugin_generator('mod_exelearning');
         $instance = $generator->create_instance(['course' => $courseid, 'packagefilepath' => false]);
         return get_coursemodule_from_instance('exelearning', $instance->id);
+    }
+
+    /**
+     * Source modules for the end-to-end naming regression.
+     *
+     * @return array
+     */
+    public static function sibling_source_provider(): array {
+        return [
+            'mod_exeweb'   => ['exeweb', exeweb_source::class, 'mod_exeweb', ['revision' => 2], 2],
+            'mod_exescorm' => [
+                'exescorm',
+                exescorm_source::class,
+                'mod_exescorm',
+                ['exescormtype' => 'embedded', 'reference' => 'project.elpx'],
+                0,
+            ],
+        ];
+    }
+
+    /**
+     * A migrated activity is named so it can be told apart from the source, which
+     * stays in the same course untouched (exelearning/exelearning issue 2460).
+     *
+     * @dataProvider sibling_source_provider
+     * @param string $module Source module name.
+     * @param string $handlerclass Source handler class.
+     * @param string $component Source component owning the package filearea.
+     * @param array $fields Extra source activity fields.
+     * @param int $itemid Package filearea itemid for that source.
+     */
+    public function test_migrated_activity_name_differs_from_the_kept_source(
+        string $module,
+        string $handlerclass,
+        string $component,
+        array $fields,
+        int $itemid
+    ): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->setAdminUser();
+        $fake = $this->make_fake_sibling_activity($module, ['name' => 'Unit review'] + $fields);
+        $contextid = (int) \context_module::instance($fake->cmid)->id;
+        $this->store_sibling_package($contextid, $component, $this->fixture(), 'project.elpx', $itemid);
+
+        $handler = new $handlerclass();
+        [$source] = $handler->list_sources();
+        $result = migration_service::migrate_one($handler, $source);
+
+        $this->assertSame(migration_result::STATUS_MIGRATED, $result->status);
+        $target = get_coursemodule_from_id('exelearning', $result->targetcmid, 0, false, MUST_EXIST);
+        $this->assertSame('Unit review (migrated)', $DB->get_field('exelearning', 'name', ['id' => $target->instance]));
+        // The package content is still imported: its gradable iDevices are registered.
+        $this->assertSame(2, $DB->count_records('exelearning_grade_item', ['exelearningid' => $target->instance]));
+        // The source activity is kept, with its name unchanged.
+        $this->assertTrue($DB->record_exists('course_modules', ['id' => $fake->cmid]));
+        $this->assertSame('Unit review', $DB->get_field($module, 'name', ['id' => $fake->instanceid]));
     }
 }

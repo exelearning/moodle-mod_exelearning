@@ -215,6 +215,7 @@ $string['maxattempt_help'] = '~Número máximo de intentos que un estudante pode
 $string['maxattemptsreached'] = '~Utilizou todos os intentos permitidos para esta actividade.';
 $string['migratebutton'] = '~Migrar {$a} actividades';
 $string['migratecount'] = '~Atopáronse {$a->count} actividades {$a->sibling} en todos os cursos.';
+$string['migratedname'] = '{$a} (migrada)';
 $string['migrateextractfailed'] = '~Non se puido extraer o paquete importado (.elpx corrupto ou baleiro).';
 $string['migrateheadingrun'] = '~Migrando {$a} actividades';
 $string['migratenosiblings'] = '~Non se atoparon actividades mod_exeweb nin mod_exescorm (os plugins irmáns non están instalados).';

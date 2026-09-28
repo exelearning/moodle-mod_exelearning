@@ -215,6 +215,7 @@ $string['maxattempt_help'] = '~Ikasle batek bidal dezakeen gehienezko saialdi-ko
 $string['maxattemptsreached'] = '~Jarduera honetarako baimendutako saialdi guztiak erabili dituzu.';
 $string['migratebutton'] = '~Migratu {$a} jarduera';
 $string['migratecount'] = '~{$a->count} {$a->sibling} jarduera aurkitu dira ikastaro guztietan.';
+$string['migratedname'] = '{$a} (migratua)';
 $string['migrateextractfailed'] = '~Ezin izan da inportatutako paketea erauzi (.elpx hondatua edo hutsa).';
 $string['migrateheadingrun'] = '~{$a} jarduera migratzen';
 $string['migratenosiblings'] = '~Ez da mod_exeweb edo mod_exescorm jarduerarik aurkitu (ahaide-pluginak ez daude instalatuta).';

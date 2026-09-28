@@ -215,6 +215,7 @@ $string['maxattempt_help'] = '~Nombre màxim d\'intents que un estudiant pot env
 $string['maxattemptsreached'] = '~Heu utilitzat tots els intents permesos per a aquesta activitat.';
 $string['migratebutton'] = '~Migra {$a} activitats';
 $string['migratecount'] = '~S\'han trobat {$a->count} activitats {$a->sibling} a tots els cursos.';
+$string['migratedname'] = '{$a} (migrada)';
 $string['migrateextractfailed'] = '~No s\'ha pogut extreure el paquet importat (.elpx corrupte o buit).';
 $string['migrateheadingrun'] = '~Migrant {$a} activitats';
 $string['migratenosiblings'] = '~No s\'ha trobat cap activitat mod_exeweb ni mod_exescorm (els connectors germans no estan instal·lats).';

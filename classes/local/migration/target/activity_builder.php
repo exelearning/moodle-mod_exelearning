@@ -33,7 +33,8 @@ use mod_exelearning\local\attempts;
  * Mirrors the add_moduleinfo() flow the activity form uses. The package is left empty;
  * the caller imports the content afterwards. The source idnumber is deliberately not
  * copied: the source survives in the same course, so copying it would create a
- * course-wide duplicate (DEC-13-12).
+ * course-wide duplicate (DEC-13-12). For the same reason the name gets a "(migrated)"
+ * suffix, so teachers can tell the two activities apart.
  */
 final class activity_builder {
     /**
@@ -59,7 +60,7 @@ final class activity_builder {
             'section'             => (int) $source->sectionnum,
             'visible'             => (int) $source->cmvisible,
             'visibleoncoursepage' => (int) $source->cmvisibleoncoursepage,
-            'name'                => (string) $source->name,
+            'name'                => self::target_name((string) $source->name),
             'intro'               => (string) ($source->intro ?? ''),
             'introformat'         => (int) ($source->introformat ?? FORMAT_HTML),
             'lang'                => (string) ($source->cmlang ?? ''),
@@ -106,5 +107,22 @@ final class activity_builder {
             'instance'  => $instance,
             'contextid' => (int) \context_module::instance($cm->id)->id,
         ];
+    }
+
+    /**
+     * Names the target after the source plus the translated "migrated" suffix. The
+     * source name is shortened when needed so the result fits the 255-character column.
+     *
+     * @param string $sourcename The source activity name.
+     * @return string The target activity name.
+     */
+    private static function target_name(string $sourcename): string {
+        $name = get_string('migratedname', 'mod_exelearning', $sourcename);
+        $overflow = \core_text::strlen($name) - 255;
+        if ($overflow > 0) {
+            $sourcename = \core_text::substr($sourcename, 0, \core_text::strlen($sourcename) - $overflow);
+            $name = get_string('migratedname', 'mod_exelearning', $sourcename);
+        }
+        return $name;
     }
 }
