@@ -97,11 +97,16 @@ is **not** debt.
 
 ## Functional classification
 
-`exelearning_supports()` declares `MOD_ARCHETYPE_ASSIGNMENT` + `MOD_PURPOSE_ASSESSMENT`
-(`lib.php:52-79`). These are resolved per **module type**, not per instance, so they do
-not vary with the per-activity `gradeenabled` switch ([[DEC-13-07]]); `gradeenabled = 0`
-is a resource-like mode within an assessment-archetype module. Decision recorded in
-[[DEC-37-01]]; see `docs/AUDIT_FOLLOWUP.md`.
+`exelearning_supports()` keeps the default archetype (`MOD_ARCHETYPE_OTHER`, which the
+4.5 and 5.0 activity chooser needs to list the module under "Activities") and declares
+`MOD_PURPOSE_INTERACTIVECONTENT` as primary purpose and, on Moodle 5.1+,
+`MOD_PURPOSE_ASSESSMENT` as secondary purpose (`FEATURE_MOD_OTHERPURPOSE`, guarded
+with `defined()` because 4.5 and 5.0 lack it). This matches core's own modules for
+interactive content (`mod_h5pactivity`, `mod_lesson`). The purpose only places the
+activity in the chooser: the icon is branded (`exelearning_is_branded()`), so it is
+never tinted. These are resolved per **module type**, not per instance, so they do
+not vary with the per-activity `gradeenabled` switch ([[DEC-13-07]]). Decision
+recorded in [[DEC-159-01]], which supersedes [[DEC-37-01]].
 
 ## Global search
 

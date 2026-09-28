@@ -160,7 +160,7 @@ History recorded while the activity **was** graded is untouched by all of this: 
 **Caveat**: `FEATURE_GRADE_HAS_GRADE` is **static** — `exelearning_supports()` returns `true` unconditionally
 (`lib.php:66-67`), regardless of `gradeenabled`. So Moodle still classifies the activity type as gradable even when a
 given instance is not. This functional classification mismatch is tracked in the audit follow-up — see the new ADR
-**DEC-37-01** (functional classification) and `docs/AUDIT_FOLLOWUP.md`.
+**DEC-37-01**, superseded by **DEC-159-01** (functional classification), and `docs/AUDIT_FOLLOWUP.md`.
 
 ## Worked example
 
@@ -197,4 +197,4 @@ The Grading and Attempts sections of the activity form (`mod_form.php:78-227`), 
   for the single-channel SCORM 1.2 pipeline).
 - `docs/PRIVACY_BACKUP_FILES.md` — backup/restore of `exelearning_grade_item` and attempt data
   (`backup/moodle2/backup_exelearning_stepslib.php`).
-- `research/decisiones/adr/` — DEC-0-08, DEC-0-10, DEC-5-01, DEC-12-01, DEC-13-07, DEC-25-01, DEC-37-01, DEC-69-01.
+- `research/decisiones/adr/` — DEC-0-08, DEC-0-10, DEC-5-01, DEC-12-01, DEC-13-07, DEC-25-01, DEC-37-01, DEC-69-01, DEC-159-01.

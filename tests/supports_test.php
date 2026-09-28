@@ -36,12 +36,15 @@ require_once($CFG->dirroot . '/mod/exelearning/lib.php');
  */
 final class supports_test extends advanced_testcase {
     /**
-     * DEC-37-01: the module is an assessment-archetype activity. The classification
-     * is fixed per module type and must not silently change.
+     * DEC-159-01: the module is interactive content (like SCORM, H5P and Lesson)
+     * that may carry graded iDevices. The classification is fixed per module type
+     * and must not silently change.
      */
-    public function test_supports_reports_assessment_classification(): void {
-        $this->assertSame(MOD_ARCHETYPE_ASSIGNMENT, exelearning_supports(FEATURE_MOD_ARCHETYPE));
-        $this->assertSame(MOD_PURPOSE_ASSESSMENT, exelearning_supports(FEATURE_MOD_PURPOSE));
+    public function test_supports_reports_interactive_content_classification(): void {
+        // Default archetype: 4.5 and 5.0 list only MOD_ARCHETYPE_OTHER under "Activities".
+        $this->assertNull(exelearning_supports(FEATURE_MOD_ARCHETYPE));
+        $this->assertSame(MOD_ARCHETYPE_OTHER, plugin_supports('mod', 'exelearning', FEATURE_MOD_ARCHETYPE, MOD_ARCHETYPE_OTHER));
+        $this->assertSame(MOD_PURPOSE_INTERACTIVECONTENT, exelearning_supports(FEATURE_MOD_PURPOSE));
         $this->assertTrue(exelearning_supports(FEATURE_GRADE_HAS_GRADE));
         $this->assertTrue(exelearning_supports(FEATURE_BACKUP_MOODLE2));
         $this->assertTrue(exelearning_supports(FEATURE_MOD_INTRO));
@@ -51,6 +54,17 @@ final class supports_test extends advanced_testcase {
         // DEC-69-01: custom completion rule completionstatusrequired is now offered.
         $this->assertTrue(exelearning_supports(FEATURE_COMPLETION_HAS_RULES));
         $this->assertNull(exelearning_supports('a_feature_that_does_not_exist'));
+    }
+
+    /**
+     * DEC-159-01: on Moodle 5.1+ the module is also listed under assessment, as a
+     * secondary purpose. Older branches do not define the feature at all.
+     */
+    public function test_supports_reports_assessment_as_secondary_purpose(): void {
+        if (!defined('FEATURE_MOD_OTHERPURPOSE')) {
+            $this->markTestSkipped('FEATURE_MOD_OTHERPURPOSE exists from Moodle 5.1.');
+        }
+        $this->assertSame(MOD_PURPOSE_ASSESSMENT, exelearning_supports(FEATURE_MOD_OTHERPURPOSE));
     }
 
     /**

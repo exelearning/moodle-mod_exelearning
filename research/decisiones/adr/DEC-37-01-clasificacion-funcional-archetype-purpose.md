@@ -1,7 +1,8 @@
 ---
 id: DEC-37-01
 title: "Clasificación funcional del módulo: mantener MOD_ARCHETYPE_ASSIGNMENT + MOD_PURPOSE_ASSESSMENT"
-status: Accepted
+status: Superseded
+superseded_by: DEC-159-01
 date: 2026-06-11
 tracking_issue: 37
 legacy_id: DEC-0047
