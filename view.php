@@ -391,6 +391,11 @@ if (!$mainfile) {
     // allow-popups: interactive-video, hidden-image, etc.
     // allow-forms: quick-questions, form, scrambled-list, etc.
     // allow-popups-to-escape-sandbox: popups load without restrictions.
+    // allow-downloads: <a download> links and the download-source-file iDevice's
+    // "Download .elpx" button, which rebuilds the package in the browser and saves it.
+    // Without it Chrome/Firefox silently drop every download the frame starts
+    // (exelearning/exelearning#2488). Same-origin script can already trigger
+    // downloads through the parent, so this grants no new capability.
     // Explicitly BLOCKED (not included):
     // allow-top-navigation: a malicious package must not change the parent URL.
     // allow-modals: no alert/confirm/prompt, they are UX interruptions.
@@ -402,7 +407,7 @@ if (!$mainfile) {
         'width'  => '100%',
         'height' => '650',
         'allow'  => 'fullscreen',
-        'sandbox' => 'allow-scripts allow-same-origin allow-popups allow-forms allow-popups-to-escape-sandbox',
+        'sandbox' => 'allow-scripts allow-same-origin allow-popups allow-forms allow-popups-to-escape-sandbox allow-downloads',
         'style'  => 'border: 1px solid var(--bs-border-color, #dee2e6); border-radius: .5rem;',
     ]);
 

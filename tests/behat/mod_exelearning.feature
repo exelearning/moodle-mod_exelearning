@@ -182,6 +182,19 @@ Feature: View a mod_exelearning activity and its attempts report
     And I am on the "Teacher noreveal" "exelearning activity" page logged in as teacher1
     Then the "src" attribute of "iframe#exelearningobject" "css_element" should not contain "exe-teacher"
 
+  # The package's own download links, including the download-source-file iDevice's
+  # "Download .elpx" button, need allow-downloads or the browser drops the file
+  # (exelearning/exelearning#2488). The attribute is server-rendered, so the non-JS
+  # driver asserts on it directly.
+  Scenario: The package iframe lets the package download files
+    Given the following "activities" exist:
+      | activity    | name           | course | idnumber |
+      | exelearning | Download frame | C1     | exedl    |
+    And I am on the "Download frame" "exelearning activity" page logged in as student1
+    Then the "sandbox" attribute of "iframe#exelearningobject" "css_element" should contain "allow-downloads"
+    And the "sandbox" attribute of "iframe#exelearningobject" "css_element" should not contain "allow-top-navigation"
+    And the "sandbox" attribute of "iframe#exelearningobject" "css_element" should not contain "allow-modals"
+
   Scenario: A student also sees the exe-teacher parameter when the setting is on
     Given the following "activities" exist:
       | activity    | name               | course | idnumber | teachermodevisible |

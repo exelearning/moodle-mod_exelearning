@@ -114,7 +114,7 @@ risk as core `mod_scorm` and any client-graded SCORM player; use a server-graded
 | 5 | Grade another user | Spoof a userid in the payload | The payload carries no userid; `ingest()` is always called with `$USER->id` (web `track.php:66`, WS `save_track.php:137`) | `track.php:66`; `classes/external/save_track.php:137` |
 | 6 | CSRF on the tracking endpoint | Cross-site POST to `track.php` | The session key is confirmed before any work. It is carried in the JSON body, not the query string, so access logs and proxies never record it (SEC-04) | `track.php:51`; `classes/local/tracking_endpoint.php` |
 | 7 | Unauthorised save | Unauthenticated / unprivileged POST | `require_login($course,…,$cm)` then `require_capability('mod/exelearning:savetrack')` (preview path needs `moodle/course:manageactivities`); WS adds `validate_context()` + same capability | `track.php:46,49-55`; `save_track.php:105-107` |
-| 8 | Malicious package navigates parent / spams modals | iDevice JS tries `top.location` / `alert()` | **Not enforceable.** The `sandbox` omits `allow-top-navigation` and `allow-modals`, but it also grants `allow-same-origin` next to `allow-scripts`, so package JS can reach `parent`/`top` (same origin, unsandboxed realm) and call `parent.alert()`, set `parent.location`, or rewrite the Moodle page. The omissions only stop the naive in-frame calls. Accepted residual risk; the real fix is a separate origin (RIE-001, see below) | `view.php:404-413`; rationale `research/analisis/notas/AN-008-iframe-vs-scorm-player.md:116-153` |
+| 8 | Malicious package navigates parent / spams modals | iDevice JS tries `top.location` / `alert()` | **Not enforceable.** The `sandbox` omits `allow-top-navigation` and `allow-modals`, but it also grants `allow-same-origin` next to `allow-scripts`, so package JS can reach `parent`/`top` (same origin, unsandboxed realm) and call `parent.alert()`, set `parent.location`, or rewrite the Moodle page. The omissions only stop the naive in-frame calls. Accepted residual risk; the real fix is a separate origin (RIE-001, see below) | `view.php:388-412`; rationale `research/analisis/notas/AN-008-iframe-vs-scorm-player.md:116-153` |
 | 9 | Status-only commit recorded as a real 0 | Mobile sends a status update with no score | `scoreraw` is nullable; omitting it skips `cmi.core.score.raw`, so `ingest()` no-ops instead of persisting a 0-score attempt (DEC-34-01 / B6) | `save_track.php:60-66,121-129`; no-op guard `classes/local/track.php:79-82` |
 | 10 | Package HTML opened top-level, outside the iframe | Learner (or a link inside the package) opens a `content/` file URL directly | **None at serve time.** `exelearning_pluginfile()` serves the `content` area to anyone with `mod/exelearning:view` as a same-origin document with no sandbox and no CSP (SVG inline too), so the iframe sandbox does not apply. Package JS then runs with the viewer's full Moodle session. Today's only control is **who can upload**: `mod/exelearning:addinstance` and `moodle/course:manageactivities` carry `RISK_XSS`, the same trust model as `mod_scorm`/`mod_resource`. The real fix is serving `content/` from a separate origin (RIE-001 / DEC-0-16) | `lib.php:522-580`; `db/access.php:38-46` |
 
@@ -130,6 +130,15 @@ is the boundary. Cross-component XSS hardening
 (dedicated origin / `Permissions-Policy` / CSP, dropping
 `allow-popups-to-escape-sandbox`) is roadmapped as **RIE-001** / **DEC-0-16** — see
 `research/analisis/notas/AN-008-iframe-vs-scorm-player.md:124-153`.
+
+The sandbox also grants `allow-downloads`. Without it the browser silently drops
+every download the frame starts: `<a download>` links and the download-source-file
+iDevice's "Download .elpx" button, which rebuilds the package in the browser
+(exelearning/exelearning#2488). It adds nothing to threat 8, because same-origin package
+script can already start a download through the parent. Any future CSP for the
+`content` area (DEC-0-16 M3) must also allow `worker-src 'self' blob:`. Otherwise that
+button's fflate compression cannot start its workers, and in packages exported before
+exelearning/exelearning#2489 it hangs at "Processing... 100%".
 
 ## What is, and is not, tech debt
 
