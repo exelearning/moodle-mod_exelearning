@@ -78,19 +78,20 @@ full-screen overlay containing an `<iframe>` whose `src` is the editor URL
 
 ### Service worker
 
-The static editor ships a `preview-sw.js` service worker, but **the embedded
-editor never registers it**: `editor/index.php` shims
-`navigator.serviceWorker.register` so any request for `preview-sw.js` resolves to
-a no-op instead of registering (`editor/index.php:224-241`). This avoids the
-console-spamming registration errors seen where the `static.php` router is proxied
-or cached (e.g. moodle-playground) and returns a 404 for that path.
+The static editor renders its preview through a `preview-sw.js` service worker,
+registered from `editor/static.php/<cmid>/preview-sw.js` with the scope
+`editor/static.php/<cmid>/viewer/`. The scope sits under the script's own path, so
+no `Service-Worker-Allowed` header is needed and `editor/static.php` does not send
+one.
 
-Because registration is blocked, `editor/static.php` **does not** emit a
-`Service-Worker-Allowed: /` header when serving `preview-sw.js`. That header only
-widens the scope a service worker is *allowed to control*; with no registration it
-was unused, and broadcasting an unnecessarily broad (`/`) control scope is avoided.
-Removing it changes no working flow — the worker is never activated — and narrows
-the surface a future or proxied registration could claim.
+`editor/index.php` wraps `navigator.serviceWorker.register` only to absorb a
+**failed** registration: where the `static.php` router is proxied or cached (e.g.
+moodle-playground) the worker script 404s, and the wrapper resolves a stub instead
+of letting the error reach the console. The editor then falls back to a `blob:`
+preview. That fallback is degraded: the inlined theme CSS keeps relative `url(...)`
+references that cannot resolve from a `blob:` URL, so theme icons are missing
+(exelearning/exelearning issue 2476). Blocking the registration unconditionally, as
+earlier versions did, forced that fallback everywhere.
 
 ### Protocol messages
 
