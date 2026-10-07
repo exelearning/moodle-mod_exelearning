@@ -131,13 +131,18 @@ is the boundary. Cross-component XSS hardening
 `allow-popups-to-escape-sandbox`) is roadmapped as **RIE-001** / **DEC-0-16** — see
 `research/analisis/notas/AN-008-iframe-vs-scorm-player.md:124-153`.
 
-The sandbox also grants `allow-downloads`. Without it the browser silently drops
-every download the frame starts: `<a download>` links and the download-source-file
-iDevice's "Download .elpx" button, which rebuilds the package in the browser
-(exelearning/exelearning#2488). It adds nothing to threat 8, because same-origin package
-script can already start a download through the parent. Any future CSP for the
-`content` area (DEC-0-16 M3) must also allow `worker-src 'self' blob:`. Otherwise that
-button's fflate compression cannot start its workers, and in packages exported before
+The sandbox also grants `allow-downloads`, in both iframe modes
+(`player_iframe::sandbox_tokens()`) and in the CSP `sandbox` directive sent with every
+package document (`player_iframe::content_security_policy()`) and editor preview document
+(`preview\serving::csp_header()`); a CSP sandbox applies to the document itself, so it
+must allow downloads too. Without it the browser silently drops every download the frame
+starts: `<a download>` links and the download-source-file iDevice's "Download .elpx"
+button, which rebuilds the package in the browser (exelearning/exelearning#2488). The
+token is acceptable in the opaque-origin (secure) frame: it only hands a file to the
+browser's download UI, gives the package no access to the parent page or to Moodle's
+cookies and storage, and browsers still gate a sandboxed frame's downloads on user
+activation. Both CSPs also allow `worker-src 'self' blob:`. Otherwise that button's
+fflate compression cannot start its workers, and in packages exported before
 exelearning/exelearning#2489 it hangs at "Processing... 100%".
 
 ## What is, and is not, tech debt
