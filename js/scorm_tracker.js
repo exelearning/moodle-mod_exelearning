@@ -377,14 +377,17 @@
      * @param {Object} cmi        Buffered CMI key/value pairs.
      * @param {Object} itemscores objectid -> {scorepct, weighted, title}.
      * @param {string} sesskey    Moodle session key, validated server-side.
+     * @param {string[]} [answered] Objectids the learner answered during this visit;
+     *          when undefined the key is omitted and every scored iDevice is recorded.
      * @returns {string} JSON payload.
      */
-    function buildPayload(cmid, session, cmi, itemscores, sesskey) {
+    function buildPayload(cmid, session, cmi, itemscores, sesskey, answered) {
         return JSON.stringify({
             id: cmid,
             session: session,
             cmi: cmi,
             itemscores: itemscores,
+            answered: answered,
             sesskey: sesskey,
         });
     }
@@ -442,19 +445,45 @@
         // Package pages already listened to. Weak, so a visited page's document can be
         // garbage-collected once the iframe moves on.
         var watchedDocs = new WeakSet();
+        // The objectid of the iDevice the learner last interacted with on interactedDoc.
+        var lastIdevice = null;
+        // The seeds of the iDevices the learner never answered stay in suspend_data
+        // with 0, so the payload names the iDevices answered during this visit
+        // (exelearning issue 2481) and only those get a per-iDevice result. answered
+        // holds the iDevices a score write was attributed to; seeds holds each
+        // iDevice's score when first captured, so a changed score counts too.
+        var answered = {};
+        var seeds = {};
 
         // Record a learner interaction when it happened inside an iDevice. Navigation
         // and clicks elsewhere in the package do not answer anything.
         function noteInteraction(target) {
-            if (target && typeof target.closest === 'function' && target.closest('.idevice_node')) {
+            var node = target && typeof target.closest === 'function' && target.closest('.idevice_node');
+            if (node) {
                 interactedDoc = target.ownerDocument;
+                lastIdevice = node.id || null;
             }
+        }
+
+        // The objectids answered during this visit: those a score write was attributed
+        // to, plus any whose captured score moved away from its seed.
+        function answeredIds() {
+            var out = Object.keys(answered);
+            for (var oid in itemScores) {
+                if (itemScores.hasOwnProperty(oid) && !answered[oid]
+                        && itemScores[oid].scorepct !== seeds[oid]) {
+                    out.push(oid);
+                }
+            }
+            return out;
         }
 
         // Listen for the learner's own input on a package page. The iframe loads a new
         // document per package page, so this runs whenever the SCO talks to the API.
         function watchDocument(doc) {
-            if (started || !doc || typeof doc.addEventListener !== 'function'
+            // Keep watching after the attempt starts: later pages still need to know
+            // which of their iDevices the learner answers.
+            if (!awaitInteraction || !doc || typeof doc.addEventListener !== 'function'
                     || watchedDocs.has(doc)) {
                 return;
             }
@@ -491,7 +520,10 @@
             // keep the values buffered for the first real commit.
             if (!dirty || !started) { return true; }
             var snapshot = JSON.stringify(cmi);
-            var payload = buildPayload(cmid, session, cmi, itemScores, sesskey);
+            // Without interaction gating there is no attribution to report: omitting
+            // answered keeps the server recording every scored iDevice.
+            var payload = buildPayload(cmid, session, cmi, itemScores, sesskey,
+                awaitInteraction ? answeredIds() : undefined);
             try {
                 var xhr = xhrFactory();
                 // Synchronous in LMSFinish (student closes the tab); async otherwise.
@@ -533,7 +565,10 @@
             var domMap = resolveObjectMap(getScoringDocument());
             var result = captureItemScores(newParsed, prevSuspend, domMap);
             for (var oid in result.delta) {
-                if (result.delta.hasOwnProperty(oid)) { itemScores[oid] = result.delta[oid]; }
+                if (result.delta.hasOwnProperty(oid)) {
+                    if (!seeds.hasOwnProperty(oid)) { seeds[oid] = result.delta[oid].scorepct; }
+                    itemScores[oid] = result.delta[oid];
+                }
             }
             prevSuspend = result.prev;
         }
@@ -549,6 +584,10 @@
                 cmi[k] = String(v); dirty = true;
                 if (interactedDoc && interactedDoc === doc && SCORE_KEYS.indexOf(k) !== -1) {
                     started = true;
+                    // The write answers the iDevice the learner last interacted with,
+                    // not every iDevice touched before it: clicking a question's text
+                    // or opening a hint answers nothing.
+                    if (lastIdevice) { answered[lastIdevice] = true; }
                 }
                 // Resolve per-iDevice scores to stable objectids while the scoring
                 // page is still loaded in the iframe (DEC-5-01).

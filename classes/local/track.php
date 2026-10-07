@@ -50,6 +50,9 @@ class track {
     /** Bit 1 of a versioned record's flag field: the activity counts towards the score. */
     private const EXE12_FLAG_EVALUABLE = 1;
 
+    /** Most entries a client-supplied itemscores map or answered list may carry. */
+    private const MAX_CLIENT_ITEMS = 1000;
+
     /**
      * Ingests a SCORM tracking payload: records the attempt, routes per-iDevice
      * scores and updates the gradebook + completion. Shared by the web `track.php`
@@ -68,7 +71,8 @@ class track {
      * @param \stdClass $course    The course record (for completion).
      * @param \stdClass $cm        The course_module record (for completion).
      * @param int       $userid    The grading user.
-     * @param array     $payload   Decoded payload: {cmi:{...}, session?:string, itemscores?:array}.
+     * @param array     $payload   Decoded payload: {cmi:{...}, session?:string, itemscores?:array,
+     *                             answered?:array}.
      * @param bool      $ispreview When true, acknowledge the score without grading (DEC-0-06).
      * @return array Result map: always has 'ok'. May add noop|mode|error|attempt|rawscore|status|peritem.
      */
@@ -127,7 +131,7 @@ class track {
         // to the page-local index from cmi.suspend_data only when none is supplied.
         $itemscores = (isset($payload['itemscores']) && is_array($payload['itemscores']))
                 ? $payload['itemscores'] : [];
-        if (count($itemscores) > 1000) {
+        if (count($itemscores) > self::MAX_CLIENT_ITEMS) {
             // A well-formed package emits one entry per gradable iDevice; a map far
             // larger than any real package is malformed/abusive — drop it.
             debugging(
@@ -164,6 +168,9 @@ class track {
             // legacy fallback must never see them.
             $peritem = [];
         }
+        // The iDevices the learner answered during this visit, or null when the client
+        // does not say (exelearning issue 2481, see answered_objectids()).
+        $answered = self::answered_objectids($exe, $payload);
 
         $grademethod = (int) ($exe->grademethod ?? attempts::GRADE_HIGHEST);
         $grademodel = (int) ($exe->grademodel ?? EXELEARNING_GRADEMODEL_PERITEM);
@@ -229,16 +236,23 @@ class track {
                 }
             }
 
-            // 1) Attempts + aggregated grade per iDevice (itemnumber > 0).
+            // 1) Attempts + aggregated grade per iDevice (itemnumber > 0). When the
+            // client names the answered iDevices, only those get a row, whatever the
+            // source of the scores: the others carry the runtime's load seed of 0,
+            // which is no answer (exelearning issue 2481).
             $persaved = [];
             if ($itemscores !== []) {
-                $persaved = self::apply_item_scores($exe, $userid, $attempt, $itemscores, $sessiontoken);
+                $answeredscores = ($answered === null) ? $itemscores : array_intersect_key($itemscores, $answered);
+                $persaved = self::apply_item_scores($exe, $userid, $attempt, $answeredscores, $sessiontoken);
             } else if ($peritem) {
-                $persaved = self::apply_legacy_peritem($exe, $userid, $attempt, $peritem, $sessiontoken);
+                $persaved = self::apply_legacy_peritem($exe, $userid, $attempt, $peritem, $sessiontoken, $answered);
             }
 
             // 2) Overall (itemnumber=0): recompute from the per-iDevice scores when an
             // objectid map was supplied (DEC-6-01), never trusting the client overall.
+            // It uses the FULL map, answered or not: that is the attempt score the
+            // package itself computes, where an unanswered iDevice counts 0 for this
+            // attempt (exelearning issue 2481).
             if ($itemscores !== []) {
                 $overallpct = self::recompute_overall_pct($itemscores);
                 if ($overallpct !== null) {
@@ -667,6 +681,44 @@ class track {
     }
 
     /**
+     * Reads the objectids the learner answered during this visit from the payload.
+     *
+     * The tracker sends the full itemscores map, so the overall stays the score the
+     * package computes, and lists in `answered` the iDevices that received an answer
+     * during the visit: every other one still carries the runtime's load seed of 0
+     * (exelearning issue 2481). The list is client input, validated like itemscores:
+     * a non-array or oversized list names nothing, and only strings naming a
+     * registered, non-deleted gradable iDevice are kept.
+     *
+     * @param \stdClass $exe     The exelearning instance record.
+     * @param array     $payload Decoded payload.
+     * @return array|null Set of objectid => true, or null when the payload carries no
+     *         `answered` key (the mobile web service, an older cached tracker): every
+     *         scored iDevice is then recorded, as before.
+     */
+    private static function answered_objectids(\stdClass $exe, array $payload): ?array {
+        if (!array_key_exists('answered', $payload)) {
+            return null;
+        }
+        $answered = $payload['answered'];
+        if (!is_array($answered) || count($answered) > self::MAX_CLIENT_ITEMS) {
+            debugging(
+                'mod_exelearning: malformed answered list ignored; no per-iDevice result is recorded.',
+                DEBUG_DEVELOPER
+            );
+            return [];
+        }
+        $registered = array_flip(array_map('strval', self::registered_objectids($exe)));
+        $set = [];
+        foreach ($answered as $objectid) {
+            if (is_string($objectid) && isset($registered[$objectid])) {
+                $set[$objectid] = true;
+            }
+        }
+        return $set;
+    }
+
+    /**
      * Casts a parsed numeric string to float, accepting a comma decimal separator.
      *
      * eXeLearning serialises the score/weight percentages with the producer's locale,
@@ -802,6 +854,11 @@ class track {
      * @param int       $attempt      Attempt number from attempts::resolve_attempt_number().
      * @param array     $peritem      Map N => ['scorepct' => float, ...] from parse_suspend_data().
      * @param string    $sessiontoken Page-load session token.
+     * @param array|null $answered    Set objectid => true of the iDevices answered in this
+     *                                visit, or null to record every entry. A slot is
+     *                                matched through the objectid of the grade item it
+     *                                is routed to (N as itemnumber), the same mapping this
+     *                                fallback already relies on (exelearning issue 2481).
      * @return array<int, float> Map of itemnumber => final published grade.
      */
     public static function apply_legacy_peritem(
@@ -809,7 +866,8 @@ class track {
         int $userid,
         int $attempt,
         array $peritem,
-        string $sessiontoken
+        string $sessiontoken,
+        ?array $answered = null
     ): array {
         global $DB;
 
@@ -834,6 +892,9 @@ class track {
             }
             $itemnumber = (int) $itemnumber;
             if (!isset($rows[$itemnumber]) || !is_array($info)) {
+                continue;
+            }
+            if ($answered !== null && !isset($answered[(string) $rows[$itemnumber]->objectid])) {
                 continue;
             }
             $scorepct = max(0.0, min(100.0, (float) ($info['scorepct'] ?? 0)));

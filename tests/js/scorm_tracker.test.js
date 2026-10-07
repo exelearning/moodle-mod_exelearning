@@ -847,3 +847,134 @@ describe('parseSuspend (versioned exe12 payload, core PR #2209)', () => {
         expect(parseSuspend('1. "Quiz"; score: 60%; weighted: 30%.')[1].title).toBe('Quiz');
     });
 });
+
+describe('createScormApi: the payload names the iDevices the learner answered', () => {
+    // Two gradable iDevices on one page, as in the demo activity (True/False + Guess).
+    // On load the runtime seeds both with 0 in a single suspend_data write. Their seeds
+    // stay in every later write, so the tracker sends the full map (the attempt score
+    // the package computes) and lists in `answered` the iDevices answered in this visit
+    // (exelearning issue 2481): only those get a per-iDevice result.
+    const SEED = '1. "Verdadero o falso"; Puntuación: 0%; Peso: 50%.\t'
+        + '2. "Adivina"; Puntuación: 0%; Peso: 50%';
+    const GUESS_RIGHT = '1. "Verdadero o falso"; Puntuación: 0%; Peso: 50%.\t'
+        + '2. "Adivina"; Puntuación: 100%; Peso: 50%';
+    let scheduled;
+    function config(xhr) {
+        scheduled = null;
+        return {
+            cmid: 42,
+            trackurl: 'https://example.test/track.php',
+            session: 'tok',
+            bindUnload: false,
+            getScoringDocument: () => document,
+            xhrFactory: () => xhr,
+            setTimeout: (fn) => { scheduled = fn; return 1; },
+            clearTimeout: () => { scheduled = null; },
+        };
+    }
+    function seedOnLoad(api) {
+        api.LMSInitialize('');
+        api.LMSSetValue('cmi.suspend_data', SEED);
+        api.LMSSetValue('cmi.core.score.raw', '0');
+    }
+    function lastBody(xhr) {
+        return JSON.parse(xhr.lastPayload);
+    }
+    beforeEach(() => {
+        document.body.innerHTML = '<div class="idevice_node" id="ide-tf">'
+            + '<p id="tf-text">The sky is green.</p><button id="tf">Check</button></div>'
+            + '<div class="idevice_node" id="ide-guess"><button id="guess">Check</button></div>';
+    });
+
+    it('sends the full map and lists only the answered iDevice (issue 2481)', () => {
+        const xhr = makeXhr(200);
+        const tracker = createScormApi(config(xhr));
+        seedOnLoad(tracker.api);
+        // The learner plays only the Guess iDevice and gets it right.
+        tracker.noteInteraction(document.getElementById('guess'));
+        tracker.api.LMSSetValue('cmi.suspend_data', GUESS_RIGHT);
+        tracker.api.LMSSetValue('cmi.core.score.raw', '50');
+        scheduled();
+        expect(xhr.calls).toHaveLength(1);
+        expect(lastBody(xhr).itemscores).toEqual({
+            'ide-tf': { scorepct: 0, weighted: 50, title: 'Verdadero o falso' },
+            'ide-guess': { scorepct: 100, weighted: 50, title: 'Adivina' },
+        });
+        expect(lastBody(xhr).answered).toEqual(['ide-guess']);
+    });
+
+    it('does not count a click on another iDevice\'s text as an answer', () => {
+        const xhr = makeXhr(200);
+        const tracker = createScormApi(config(xhr));
+        seedOnLoad(tracker.api);
+        // The learner reads the True/False statement, then answers only Guess, wrongly:
+        // the Guess score stays at its seed, so only the attribution can name it.
+        tracker.noteInteraction(document.getElementById('tf-text'));
+        tracker.noteInteraction(document.getElementById('guess'));
+        tracker.api.LMSSetValue('cmi.suspend_data', SEED);
+        tracker.api.LMSSetValue('cmi.core.score.raw', '0');
+        scheduled();
+        expect(lastBody(xhr).answered).toEqual(['ide-guess']);
+    });
+
+    it('lists a genuine 0 answer, identical to its seed', () => {
+        const xhr = makeXhr(200);
+        const tracker = createScormApi(config(xhr));
+        seedOnLoad(tracker.api);
+        tracker.noteInteraction(document.getElementById('guess'));
+        tracker.api.LMSSetValue('cmi.suspend_data', GUESS_RIGHT);
+        scheduled();
+        // Then answers the True/False wrongly: its value stays 0, identical to the seed.
+        tracker.noteInteraction(document.getElementById('tf'));
+        tracker.api.LMSSetValue('cmi.suspend_data', GUESS_RIGHT);
+        scheduled();
+        expect(lastBody(xhr).answered.sort()).toEqual(['ide-guess', 'ide-tf']);
+    });
+
+    it('lists an iDevice whose score moved away from its seed', () => {
+        const xhr = makeXhr(200);
+        const tracker = createScormApi(config(xhr));
+        seedOnLoad(tracker.api);
+        // The write that scores Guess lands after the learner's last interaction moved
+        // to True/False (an asynchronous check): attribution names True/False, and the
+        // changed score still names Guess.
+        tracker.noteInteraction(document.getElementById('tf'));
+        tracker.api.LMSSetValue('cmi.suspend_data', GUESS_RIGHT);
+        scheduled();
+        expect(lastBody(xhr).answered.sort()).toEqual(['ide-guess', 'ide-tf']);
+    });
+
+    it('omits answered when interaction gating is off', () => {
+        const xhr = makeXhr(200);
+        const tracker = createScormApi({ ...config(xhr), awaitInteraction: false });
+        seedOnLoad(tracker.api);
+        scheduled();
+        expect(lastBody(xhr)).not.toHaveProperty('answered');
+        expect(Object.keys(lastBody(xhr).itemscores).sort()).toEqual(['ide-guess', 'ide-tf']);
+    });
+
+    it('keeps attributing answers on later pages after the attempt has started', () => {
+        const xhr = makeXhr(200);
+        let current = document;
+        const tracker = createScormApi({ ...config(xhr), getScoringDocument: () => current });
+        seedOnLoad(tracker.api);
+        tracker.noteInteraction(document.getElementById('guess'));
+        tracker.api.LMSSetValue('cmi.suspend_data', GUESS_RIGHT);
+        scheduled();
+        // Page 2 carries one gradable iDevice; its seed is not attributed to Guess.
+        current = document.implementation.createHTMLDocument('page 2');
+        current.body.innerHTML = '<div class="idevice_node" id="ide-p2"><button id="p2">Check</button></div>';
+        const listeners = {};
+        current.addEventListener = (type, fn) => { listeners[type] = fn; };
+        tracker.api.LMSSetValue('cmi.suspend_data', '1. "Quiz"; Puntuación: 0%; Peso: 100%');
+        scheduled();
+        expect(lastBody(xhr).answered).toEqual(['ide-guess']);
+        // Real input on the new page must still be watched after the attempt started;
+        // a wrong answer leaves the score at its seed.
+        listeners.pointerdown({ isTrusted: true, target: current.getElementById('p2') });
+        tracker.api.LMSSetValue('cmi.suspend_data', '1. "Quiz"; Puntuación: 0%; Peso: 100%');
+        scheduled();
+        expect(lastBody(xhr).answered.sort()).toEqual(['ide-guess', 'ide-p2']);
+        expect(Object.keys(lastBody(xhr).itemscores).sort()).toEqual(['ide-guess', 'ide-p2', 'ide-tf']);
+    });
+});

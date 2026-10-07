@@ -615,6 +615,227 @@ final class track_test extends advanced_testcase {
     }
 
     /**
+     * Returns the rows recorded for one attempt as itemnumber => rawscore.
+     *
+     * @param \stdClass $instance
+     * @param int $userid
+     * @param int $attempt
+     * @return array
+     */
+    protected function attempt_rows(\stdClass $instance, int $userid, int $attempt): array {
+        global $DB;
+        return array_map('floatval', $DB->get_records_menu('exelearning_attempt', [
+            'exelearningid' => $instance->id,
+            'userid'        => $userid,
+            'attempt'       => $attempt,
+        ], 'itemnumber ASC', 'itemnumber, rawscore'));
+    }
+
+    /**
+     * Submits one visit with the full map of two equally weighted iDevices.
+     *
+     * @param \stdClass $instance
+     * @param \stdClass $student
+     * @param string $session Page-load session token.
+     * @param float $tfpct Score of the iDevice at itemnumber 1.
+     * @param float $guesspct Score of the iDevice at itemnumber 2.
+     * @param array|null $answered Objectids to send as `answered`; null omits the key.
+     * @return array The ingest() result.
+     */
+    protected function submit_two_idevice_visit(
+        \stdClass $instance,
+        \stdClass $student,
+        string $session,
+        float $tfpct,
+        float $guesspct,
+        ?array $answered
+    ): array {
+        [$course, $cm] = $this->course_and_cm($instance);
+        $payload = [
+            'session' => $session,
+            // Raw matches the overall the package computes from the full map, so
+            // ingest() reports no divergence (DEC-6-01).
+            'cmi' => [
+                'cmi.core.score.raw' => (string) (($tfpct + $guesspct) / 2),
+                'cmi.core.score.max' => '100',
+            ],
+            'itemscores' => [
+                $this->objectid_for($instance, 1) => ['scorepct' => $tfpct, 'weighted' => 50.0, 'title' => 'TF'],
+                $this->objectid_for($instance, 2) => ['scorepct' => $guesspct, 'weighted' => 50.0, 'title' => 'Guess'],
+            ],
+        ];
+        if ($answered !== null) {
+            $payload['answered'] = $answered;
+        }
+        $result = track::ingest($instance, $course, $cm, $student->id, $payload, false);
+        $this->assertTrue($result['ok']);
+        return $result;
+    }
+
+    /**
+     * Under the OVERALL model the overall is recomputed from the FULL itemscores map,
+     * not from the answered iDevices alone (exelearning issue 2481): an unanswered
+     * iDevice counts 0 for that attempt, as in the package's own score. Answering each
+     * of two equally weighted iDevices in a separate visit is worth 50 per attempt, so
+     * "Highest attempt" publishes 50, never 100.
+     */
+    public function test_ingest_overall_is_recomputed_from_the_full_map(): void {
+        [$instance, $student] = $this->create_activity_with_student([
+            'grademodel'  => EXELEARNING_GRADEMODEL_OVERALL,
+            'grademethod' => \mod_exelearning\local\attempts::GRADE_HIGHEST,
+        ]);
+        $tf = $this->objectid_for($instance, 1);
+        $guess = $this->objectid_for($instance, 2);
+
+        $first = $this->submit_two_idevice_visit($instance, $student, 'visitTf', 100.0, 0.0, [$tf]);
+        $this->assertEqualsWithDelta(50.0, $first['rawscore'], 0.0001);
+        $second = $this->submit_two_idevice_visit($instance, $student, 'visitGuess', 0.0, 100.0, [$guess]);
+        $this->assertEqualsWithDelta(50.0, $second['rawscore'], 0.0001);
+
+        $this->assertEqualsWithDelta(50.0, $this->published_grade($instance, $student->id, 0), 0.0001);
+        // Each attempt still records a per-iDevice row only for the iDevice answered in it.
+        $this->assertEqualsWithDelta([0 => 50.0, 1 => 100.0], $this->attempt_rows($instance, $student->id, 1), 0.0001);
+        $this->assertEqualsWithDelta([0 => 50.0, 2 => 100.0], $this->attempt_rows($instance, $student->id, 2), 0.0001);
+    }
+
+    /**
+     * Only the iDevices named in `answered` get a per-iDevice row (exelearning issue
+     * 2481). The second visit's full map still carries the load seed of 0 for the
+     * iDevice the learner did not answer; under "Last attempt" that iDevice keeps the
+     * 100 earned in the first visit, while the overall row follows the full map.
+     */
+    public function test_ingest_records_item_rows_only_for_answered_idevices(): void {
+        [$instance, $student] = $this->create_activity_with_student([
+            'grademodel'  => EXELEARNING_GRADEMODEL_PERITEM,
+            'grademethod' => \mod_exelearning\local\attempts::GRADE_LAST,
+        ]);
+        $tf = $this->objectid_for($instance, 1);
+        $guess = $this->objectid_for($instance, 2);
+
+        $this->submit_two_idevice_visit($instance, $student, 'visitTf', 100.0, 0.0, [$tf]);
+        $second = $this->submit_two_idevice_visit($instance, $student, 'visitGuess', 0.0, 100.0, [$guess]);
+
+        $this->assertEquals([2], array_keys($second['peritem']));
+        $this->assertEqualsWithDelta(100.0, $this->published_grade($instance, $student->id, 1), 0.0001);
+        $this->assertEqualsWithDelta(100.0, $this->published_grade($instance, $student->id, 2), 0.0001);
+        $this->assertEqualsWithDelta([0 => 50.0, 2 => 100.0], $this->attempt_rows($instance, $student->id, 2), 0.0001);
+    }
+
+    /**
+     * An empty `answered` list records the attempt's overall row but no per-iDevice
+     * row: every score in the map is a load seed.
+     */
+    public function test_ingest_with_empty_answered_records_only_the_overall(): void {
+        [$instance, $student] = $this->create_activity_with_student();
+
+        $result = $this->submit_two_idevice_visit($instance, $student, 'visitNone', 0.0, 0.0, []);
+
+        $this->assertSame([], $result['peritem']);
+        $this->assertEqualsWithDelta([0 => 0.0], $this->attempt_rows($instance, $student->id, 1), 0.0001);
+        $this->assertNull($this->published_grade($instance, $student->id, 1));
+        $this->assertNull($this->published_grade($instance, $student->id, 2));
+    }
+
+    /**
+     * Without an `answered` key (the mobile web service, an older cached tracker)
+     * every scored iDevice is recorded, exactly as before.
+     */
+    public function test_ingest_without_answered_records_every_item(): void {
+        [$instance, $student] = $this->create_activity_with_student();
+
+        $result = $this->submit_two_idevice_visit($instance, $student, 'visitLegacy', 0.0, 100.0, null);
+
+        $this->assertEquals([1, 2], array_keys($result['peritem']));
+        $this->assertEqualsWithDelta(0.0, $this->published_grade($instance, $student->id, 1), 0.0001);
+        $this->assertEqualsWithDelta(100.0, $this->published_grade($instance, $student->id, 2), 0.0001);
+    }
+
+    /**
+     * `answered` is client input: unknown objectids and non-string entries are
+     * dropped, and a list that is not an array names nothing.
+     */
+    public function test_ingest_validates_the_answered_list(): void {
+        [$instance, $student] = $this->create_activity_with_student();
+        $guess = $this->objectid_for($instance, 2);
+
+        $result = $this->submit_two_idevice_visit(
+            $instance,
+            $student,
+            'visitMixed',
+            0.0,
+            100.0,
+            ['fake-unknown', 7, ['nested'], $guess]
+        );
+        $this->assertEquals([2], array_keys($result['peritem']));
+
+        [$course, $cm] = $this->course_and_cm($instance);
+        $malformed = track::ingest($instance, $course, $cm, $student->id, [
+            'session' => 'visitMalformed',
+            'cmi' => ['cmi.core.score.raw' => '100', 'cmi.core.score.max' => '100'],
+            'itemscores' => [$guess => ['scorepct' => 100.0, 'weighted' => 100.0, 'title' => 'Guess']],
+            'answered' => $guess,
+        ], false);
+        $this->assertDebuggingCalled();
+        $this->assertTrue($malformed['ok']);
+        $this->assertSame([], $malformed['peritem']);
+    }
+
+    /**
+     * When the client map is empty the server reads the scores from an `exe12/`
+     * cmi.suspend_data itself; `answered` still decides which iDevices get a row, so
+     * the seeds the tracker left out are not recorded there either (issue 2481).
+     */
+    public function test_ingest_exe12_suspend_data_fallback_honours_answered(): void {
+        [$instance, $student] = $this->create_activity_with_student();
+        [$course, $cm] = $this->course_and_cm($instance);
+        $tf = $this->objectid_for($instance, 1);
+        $guess = $this->objectid_for($instance, 2);
+
+        $result = track::ingest($instance, $course, $cm, $student->id, [
+            'session' => 'sessExe12Answered',
+            'cmi' => [
+                'cmi.core.score.raw' => '50',
+                'cmi.core.score.max' => '100',
+                // The True/False record is the load seed; Guess was answered.
+                'cmi.suspend_data' => 'exe12/1|' . rawurlencode($tf) . ';7;0;1;0;50;0;100'
+                    . '|' . rawurlencode($guess) . ';7;1;1;100;50;0;100',
+            ],
+            'itemscores' => [],
+            'answered' => [$guess],
+        ], false);
+
+        $this->assertTrue($result['ok']);
+        $this->assertEqualsWithDelta(50.0, $result['rawscore'], 0.0001);
+        $this->assertEqualsWithDelta([0 => 50.0, 2 => 100.0], $this->attempt_rows($instance, $student->id, 1), 0.0001);
+        $this->assertNull($this->published_grade($instance, $student->id, 1));
+    }
+
+    /**
+     * The legacy page-local fallback honours `answered` too: each slot is matched
+     * through the objectid of the grade item it is routed to.
+     */
+    public function test_ingest_legacy_suspend_data_fallback_honours_answered(): void {
+        [$instance, $student] = $this->create_activity_with_student();
+        [$course, $cm] = $this->course_and_cm($instance);
+        $guess = $this->objectid_for($instance, 2);
+
+        $result = track::ingest($instance, $course, $cm, $student->id, [
+            'session' => 'sessLegacyAnswered',
+            'cmi' => [
+                'cmi.core.score.raw' => '50',
+                'cmi.core.score.max' => '100',
+                'cmi.suspend_data' => "1. \"TF\"; Score: 0%; Weight: 50%.\t2. \"Guess\"; Score: 100%; Weight: 50%.",
+            ],
+            'answered' => [$guess],
+        ], false);
+
+        $this->assertTrue($result['ok']);
+        $this->assertEqualsWithDelta([0 => 50.0, 2 => 100.0], $this->attempt_rows($instance, $student->id, 1), 0.0001);
+        $this->assertNull($this->published_grade($instance, $student->id, 1));
+        $this->assertEqualsWithDelta(100.0, $this->published_grade($instance, $student->id, 2), 0.0001);
+    }
+
+    /**
      * With the master grading switch off (DEC-13-07), ingest() records NOTHING
      * (DEC-126-01).
      *

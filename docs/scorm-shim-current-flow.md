@@ -37,8 +37,10 @@ The iframe keeps the permissions documented in [TRACKING](TRACKING.md).
 6. The service acknowledges preview and ungraded activity requests without writes
    (DEC-0-06, DEC-126-01). Scored work is serialized per activity/user, constrained
    by the attempt limit, clamped and filtered to registered objectids.
-7. Per-item attempts are recorded; the overall is recomputed from reported item
-   scores and their weights. PERITEM publishes only itemnumber 1..N; OVERALL
+7. Per-item attempts are recorded for the iDevices listed in `answered` (every
+   reported one when the key is absent); the overall is recomputed from all reported
+   item scores and their weights, where a load seed counts 0 (see
+   [TRACKING](TRACKING.md)). PERITEM publishes only itemnumber 1..N; OVERALL
    publishes only itemnumber 0. Completion and lifecycle events follow the shared
    ingestion result.
 
