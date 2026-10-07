@@ -43,6 +43,11 @@
     var EXE12_FIELD_SEPARATOR = ';';
     /** Bit 1 of a record's flag field: the activity counts towards the score. */
     var EXE12_FLAG_EVALUABLE = 1;
+    /** CMI keys that carry a result: writing one commits, and starts the attempt. */
+    var SCORE_KEYS = ['cmi.suspend_data', 'cmi.core.score.raw', 'cmi.core.lesson_status',
+        'cmi.score.raw', 'cmi.completion_status', 'cmi.success_status'];
+    /** Elements that take focus away from the package page into a nested document. */
+    var EMBED_TAGS = ['IFRAME', 'OBJECT', 'EMBED'];
 
     /**
      * Coerce a payload field to a finite number.
@@ -395,9 +400,12 @@
      *   - xhrFactory(): returns an XMLHttpRequest-like object (default: real XHR).
      *   - setTimeout / clearTimeout: timer functions (default: globals).
      *   - bindUnload: wire a beforeunload synchronous flush (default: true in a browser).
+     *   - awaitInteraction: hold every commit until the learner has interacted with an
+     *     iDevice (default: true; see noteInteraction()).
      *
      * @param {Object} config
-     * @returns {{api: Object, destroy: Function}} api is window.API; destroy clears the timer.
+     * @returns {{api: Object, destroy: Function, noteInteraction: Function}} api is window.API;
+     *          destroy clears the timer; noteInteraction records a learner interaction.
      */
     function createScormApi(config) {
         config = config || {};
@@ -414,15 +422,74 @@
             return fr && fr.contentDocument;
         };
         var bindUnload = config.bindUnload !== false;
+        var awaitInteraction = config.awaitInteraction !== false;
 
         var errCode = '0', cmi = {}, dirty = false, autoTimer = null;
         // Everything banked so far from cmi.suspend_data, keyed by objectid (both
         // payload formats converge on it; see captureItemScores).
         var prevSuspend = {};
         var itemScores = {};    // objectid => { scorepct, weighted, title }.
+        // The package's runtime seeds every gradable iDevice with a score of 0 as soon
+        // as a page loads, and those writes are byte-identical to a real answer worth 0
+        // (exelearning issue 2458). So the attempt starts only when a score is written
+        // after the learner has interacted with an iDevice; until then nothing is sent,
+        // and merely opening or reviewing the activity records no attempt.
+        var started = !awaitInteraction;
+        // The package page (document) the learner last interacted with. Each page
+        // seeds its own iDevices on load, so only an interaction on the page whose
+        // score is being written can start the attempt.
+        var interactedDoc = null;
+        // Package pages already listened to. Weak, so a visited page's document can be
+        // garbage-collected once the iframe moves on.
+        var watchedDocs = new WeakSet();
+
+        // Record a learner interaction when it happened inside an iDevice. Navigation
+        // and clicks elsewhere in the package do not answer anything.
+        function noteInteraction(target) {
+            if (target && typeof target.closest === 'function' && target.closest('.idevice_node')) {
+                interactedDoc = target.ownerDocument;
+            }
+        }
+
+        // Listen for the learner's own input on a package page. The iframe loads a new
+        // document per package page, so this runs whenever the SCO talks to the API.
+        function watchDocument(doc) {
+            if (started || !doc || typeof doc.addEventListener !== 'function'
+                    || watchedDocs.has(doc)) {
+                return;
+            }
+            watchedDocs.add(doc);
+            var onInput = function (event) {
+                // Only real input counts: scripts dispatching events (jQuery .trigger(),
+                // el.click()) do not answer.
+                if (event.isTrusted) { noteInteraction(event.target); }
+            };
+            // Assistive technology activates controls with a bare click (screen reader
+            // browse mode, voice and switch control) and dictation fills fields with
+            // input/change, none of them preceded by a pointer or key event.
+            ['pointerdown', 'touchstart', 'keydown', 'click', 'input', 'change'].forEach(function (type) {
+                doc.addEventListener(type, onInput, true);
+            });
+            // A click inside an iframe nested in an iDevice (an applet, a video) never
+            // reaches this document; the page's window loses focus to it instead. Any
+            // other loss of focus (switching tabs, clicking the Moodle page) is not an
+            // answer, even with a field inside an iDevice still focused.
+            var win = doc.defaultView;
+            if (win && typeof win.addEventListener === 'function' && setTimeoutFn) {
+                win.addEventListener('blur', function () {
+                    // The active element settles on the nested frame after the blur.
+                    setTimeoutFn(function () {
+                        var el = doc.activeElement;
+                        if (el && EMBED_TAGS.indexOf(el.tagName) !== -1) { noteInteraction(el); }
+                    }, 0);
+                });
+            }
+        }
 
         function send(sync) {
-            if (!dirty) { return true; }
+            // Before the attempt starts there is nothing to persist: report success and
+            // keep the values buffered for the first real commit.
+            if (!dirty || !started) { return true; }
             var snapshot = JSON.stringify(cmi);
             var payload = buildPayload(cmid, session, cmi, itemScores, sesskey);
             try {
@@ -472,12 +539,17 @@
         }
 
         var api = {
-            LMSInitialize:   function () { return 'true'; },
+            LMSInitialize:   function () { watchDocument(getScoringDocument()); return 'true'; },
             LMSFinish:       function () { send(true); return 'true'; },
             LMSCommit:       function () { return send(true) ? 'true' : 'false'; },
             LMSGetValue:     function (k) { return cmi[k] || ''; },
             LMSSetValue:     function (k, v) {
+                var doc = getScoringDocument();
+                watchDocument(doc);
                 cmi[k] = String(v); dirty = true;
+                if (interactedDoc && interactedDoc === doc && SCORE_KEYS.indexOf(k) !== -1) {
+                    started = true;
+                }
                 // Resolve per-iDevice scores to stable objectids while the scoring
                 // page is still loaded in the iframe (DEC-5-01).
                 if (k === 'cmi.suspend_data') {
@@ -486,9 +558,7 @@
                 }
                 // Autocommit on critical keys so the grade reaches the gradebook
                 // even if eXeLearning does not call Commit explicitly.
-                if (k === 'cmi.core.score.raw' || k === 'cmi.core.lesson_status'
-                        || k === 'cmi.score.raw' || k === 'cmi.completion_status'
-                        || k === 'cmi.success_status') {
+                if (k !== 'cmi.suspend_data' && SCORE_KEYS.indexOf(k) !== -1) {
                     schedule();
                 }
                 return 'true';
@@ -510,7 +580,7 @@
             });
         }
 
-        return { api: api, destroy: destroy };
+        return { api: api, destroy: destroy, noteInteraction: noteInteraction };
     }
 
     var exp = {

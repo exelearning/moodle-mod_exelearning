@@ -27,7 +27,9 @@ The iframe keeps the permissions documented in [TRACKING](TRACKING.md).
 3. Versioned `exe12/1` records carry their objectids directly. Legacy records use
    the current iframe DOM to resolve page-local positions, with stale-slot guards.
    Non-evaluable records and empty score fields do not create per-item grades.
-4. `LMSCommit` sends the buffered state immediately; a 500 ms autocommit also
+4. Nothing is sent until the learner interacts with an iDevice and a score is then
+   written on that page, so the load-time 0 seeds never create an attempt. From then
+   on `LMSCommit` sends the buffered state immediately; a 500 ms autocommit also
    persists critical changes. The host flushes on `beforeunload`. Failed HTTP
    writes keep the buffer dirty for the next send.
 5. `track.php` validates login, activity permissions and the sesskey in the JSON

@@ -41,6 +41,8 @@ function hostSession() {
         session: 'runtime-integration',
         sesskey: 'test-sesskey',
         bindUnload: false,
+        // This suite checks the runtime/tracker contract, not when an attempt starts.
+        awaitInteraction: false,
         getScoringDocument: () => null,
         setTimeout: () => 1,
         clearTimeout: () => {},

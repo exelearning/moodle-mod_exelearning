@@ -139,6 +139,9 @@ export function replayScormTrace(trace, options) {
         session: 'replay-session',
         sesskey: 'replay-sesskey',
         bindUnload: false,
+        // Traces record SCORM calls, not the learner's input events, so replay every
+        // commit as if the attempt had already started.
+        awaitInteraction: false,
         getScoringDocument: () => currentDoc,
         xhrFactory,
         setTimeout: (fn) => { scheduled = fn; return 1; },
