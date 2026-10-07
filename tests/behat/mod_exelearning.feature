@@ -73,8 +73,8 @@ Feature: View a mod_exelearning activity and its attempts report
       | exelearning | Multi-page unit | C1     | exemp    | research/fixtures/elpx/multipage-gradable.elpx |
     And I am on the "Multi-page unit" "exelearning activity" page logged in as teacher1
     Then I should see "Gradable iDevices detected:"
-    And I should see "#1 trueorfalse"
-    And I should see "#2 guess"
+    And I should see "#1 True or false"
+    And I should see "#2 Guess"
 
   # Browser-level bridge coverage for DEC-5-01 belongs in manual/Playwright e2e:
   # under moodle-plugin-ci the JS driver can enter the scenario with Moodle core JS

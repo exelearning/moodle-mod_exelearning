@@ -45,14 +45,14 @@ final class grade_item_manager_test extends advanced_testcase {
             'idevicetype' => 'trueorfalse',
             'pagename'    => 'Lesson 1',
         ]);
-        $this->assertSame('My activity · Lesson 1 · trueorfalse', $withpage);
+        $this->assertSame('My activity · Lesson 1 · True or false', $withpage);
 
         // Without a page name: "activity · type".
         $nopage = grade_item_manager::format_name($instance, (object) [
             'idevicetype' => 'guess',
             'pagename'    => '',
         ]);
-        $this->assertSame('My activity · guess', $nopage);
+        $this->assertSame('My activity · Guess', $nopage);
 
         // An adversarially long page title is clamped to 255 chars (multibyte-safe).
         $longinstance = (object) ['name' => str_repeat('A', 250)];
@@ -75,7 +75,37 @@ final class grade_item_manager_test extends advanced_testcase {
 
         $this->assertSame('My activity · Lesson 1 · Key concepts', grade_item_manager::format_name($instance, $titled));
         $this->assertSame('My activity · Lesson 1 · #7 Key concepts', grade_item_manager::format_name($instance, $titled, 7));
-        $this->assertSame('My activity · crossword', grade_item_manager::format_name($instance, $blank));
+        $this->assertSame('My activity · Crossword', grade_item_manager::format_name($instance, $blank));
+    }
+
+    /**
+     * An untitled iDevice's column uses the translated type name in the course's forced
+     * language, else the site language, never the language of whoever triggered the
+     * sync, so a re-sync by another user does not rename the column.
+     */
+    public function test_format_name_translates_type_in_course_language(): void {
+        global $CFG;
+        $this->install_spanish();
+        $blank = (object) ['idevicetype' => 'trueorfalse', 'pagename' => '', 'title' => ''];
+
+        $spanish = $this->getDataGenerator()->create_course(['lang' => 'es']);
+        $instance = (object) ['name' => 'Unidad', 'course' => $spanish->id];
+        $this->assertSame('Unidad · Verdadero o falso', grade_item_manager::format_name($instance, $blank));
+
+        // The viewing user's language does not leak into the stored name.
+        force_current_language('es');
+        try {
+            $plain = $this->getDataGenerator()->create_course();
+            $instance = (object) ['name' => 'Unit', 'course' => $plain->id];
+            $this->assertSame('en', $CFG->lang);
+            $this->assertSame('Unit · True or false', grade_item_manager::format_name($instance, $blank));
+        } finally {
+            force_current_language('');
+        }
+
+        // A type without a translation keeps its slug.
+        $custom = (object) ['idevicetype' => 'my-custom-game', 'pagename' => '', 'title' => ''];
+        $this->assertSame('Unit · my-custom-game', grade_item_manager::format_name($instance, $custom));
     }
 
     /**
@@ -177,5 +207,18 @@ final class grade_item_manager_test extends advanced_testcase {
             'courseid'     => $course->id,
         ]);
         $this->assertFalse($overall);
+    }
+
+    /**
+     * Makes Spanish an installed language for this test, so the plugin's own
+     * lang/es strings resolve (the PHPUnit dataroot ships with English only).
+     */
+    private function install_spanish(): void {
+        global $CFG;
+        $this->resetAfterTest();
+        $folder = $CFG->dataroot . '/lang/es';
+        check_dir_exists($folder);
+        file_put_contents($folder . '/langconfig.php', "<?php\n\$string['thislanguage'] = 'Español';\n");
+        get_string_manager()->reset_caches();
     }
 }

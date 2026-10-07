@@ -214,11 +214,8 @@ if (!$mainfile) {
     if ($exelearning->gradeenabled && has_capability('mod/exelearning:viewreport', $context) && !empty($items)) {
         echo html_writer::start_div('alert alert-info mb-3');
         echo html_writer::tag('strong', get_string('detecteditems', 'mod_exelearning')) . ' ';
-        $labels = [];
-        foreach ($items as $it) {
-            $labels[] = '#' . $it->itemnumber . ' ' . s($it->idevicetype);
-        }
-        echo s(implode(' · ', $labels));
+        // Translated iDevice names, not content.xml type slugs (PR 163 review).
+        echo \mod_exelearning\local\idevice_types::detected_items_summary($items);
         echo html_writer::end_div();
     }
     // Participation summary + report link (DEC-0-11 option B, Assignment-style):

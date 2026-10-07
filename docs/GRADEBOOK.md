@@ -44,8 +44,11 @@ items are not registered as columns (`\mod_exelearning\grades\grade_sync::sync()
 ### Column names
 
 A per-iDevice column is named `activity · page · title`, where the title is the one the author gave the
-iDevice (`blockName` of its block in `content.xml`). An iDevice with no title falls back to its type
-(`trueorfalse`, `guess`…). When two columns on the same page would share a label, both get their stable
+iDevice (`blockName` of its block in `content.xml`). An iDevice with no title falls back to its translated
+type name (`idevicetype:<slug>` strings, e.g. "True or false", "Guess"; the same names the eXeLearning editor
+shows), in the course's forced language or else the site language, so a re-sync by another user never renames
+the column. Unknown types keep their slug (`\mod_exelearning\local\idevice_types`). The teacher's "Gradable
+iDevices detected" summary on the activity page uses the same names in the viewer's language. When two columns on the same page would share a label, both get their stable
 itemnumber (`#3 Quiz`, `#4 Quiz`). The name is display-only: renaming an iDevice renames its column on the next
 sync and never changes its objectid, itemnumber or grades (`grade_item_manager::format_name()`).
 

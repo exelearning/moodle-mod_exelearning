@@ -803,7 +803,7 @@ final class lib_test extends advanced_testcase {
      * iDevice, not its internal type (exelearning issue 2459). Columns that would
      * still share a label on the same page (same title, or no title and same type)
      * get their stable itemnumber, and an iDevice with no usable title falls back to
-     * its type.
+     * its translated type name.
      */
     public function test_grade_item_names_use_authored_idevice_titles(): void {
         $path = $this->make_titled_package([
@@ -826,8 +826,8 @@ final class lib_test extends advanced_testcase {
             2 => 'Unit · Page 1 · Actividad: crucigrama (conceptos & evidencias)',
             3 => 'Unit · Page 1 · #3 Same title',
             4 => 'Unit · Page 1 · #4 Same title',
-            5 => 'Unit · Page 1 · #5 form',
-            6 => 'Unit · Page 1 · #6 form',
+            5 => 'Unit · Page 1 · #5 Form',
+            6 => 'Unit · Page 1 · #6 Form',
         ], $this->gradebook_column_names($instance));
     }
 

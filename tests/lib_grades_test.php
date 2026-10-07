@@ -48,13 +48,13 @@ final class lib_grades_test extends advanced_testcase {
         // With a page name: "name · page · type".
         $withpage = (object) ['idevicetype' => 'trueorfalse', 'pagename' => 'Page 1'];
         $this->assertSame(
-            'My Activity · Page 1 · trueorfalse',
+            'My Activity · Page 1 · True or false',
             \mod_exelearning\grades\grade_item_manager::format_name($instance, $withpage)
         );
 
         // Without a page name: "name · type".
         $nopage = (object) ['idevicetype' => 'guess', 'pagename' => ''];
-        $this->assertSame('My Activity · guess', \mod_exelearning\grades\grade_item_manager::format_name($instance, $nopage));
+        $this->assertSame('My Activity · Guess', \mod_exelearning\grades\grade_item_manager::format_name($instance, $nopage));
 
         // An over-long composed name is clamped to 255 characters.
         $long = (object) ['name' => str_repeat('x', 300)];
