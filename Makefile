@@ -99,9 +99,19 @@ fix:
 test: check-docker
 	docker compose exec moodle sh /var/www/html/mod/exelearning/scripts/phpunit-docker.sh $(ARGS)
 
-# Run PHP Mess Detector using Composer
-phpmd:
-	composer phpmd
+# Run PHP Mess Detector exactly as CI does: moodle-plugin-ci with Moodle's rules.
+# It is not a Composer dependency (it needs packages outside Packagist), so the
+# first run installs it under vendor/. Its phpmd command does not need Moodle:
+# an empty directory is enough for --moodle.
+MOODLE_PLUGIN_CI_DIR := vendor/moodle-plugin-ci
+MOODLE_PLUGIN_CI := $(MOODLE_PLUGIN_CI_DIR)/bin/moodle-plugin-ci
+
+$(MOODLE_PLUGIN_CI):
+	composer create-project --no-interaction --no-progress --no-dev moodlehq/moodle-plugin-ci $(MOODLE_PLUGIN_CI_DIR) ^4
+
+phpmd: $(MOODLE_PLUGIN_CI)
+	@mkdir -p $(MOODLE_PLUGIN_CI_DIR)/empty-moodle
+	$(MOODLE_PLUGIN_CI) phpmd --moodle $(MOODLE_PLUGIN_CI_DIR)/empty-moodle .
 
 # Run Behat tests using Composer
 behat:
@@ -273,7 +283,7 @@ help:
 	@echo "  lint                   - Run code linting using Composer"
 	@echo "  fix                    - Automatically fix code style issues using Composer"
 	@echo "  test                   - Run PHPUnit in the Docker moodle container (make upd first)"
-	@echo "  phpmd                  - Run PHP Mess Detector using Composer"
+	@echo "  phpmd                  - Run PHP Mess Detector with moodle-plugin-ci, as in CI"
 	@echo "  behat                  - Run Behat tests using Composer"
 	@echo "  coverage               - Run PHPUnit with a text coverage report (needs xdebug/pcov)"
 	@echo "  test-js                - Run the SCORM tracker JS unit tests (Vitest, Node-only)"

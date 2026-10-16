@@ -114,6 +114,10 @@ moodle-plugin-ci phpunit --fail-on-warning
 moodle-plugin-ci behat --profile chrome
 ```
 
+`make phpmd` (or `composer phpmd`) runs the same `moodle-plugin-ci phpmd`
+without a Moodle install: the first run installs moodle-plugin-ci under
+`vendor/moodle-plugin-ci`.
+
 Path exclusions for the linters live in:
 
 - `.moodle-plugin-ci.yml` &mdash; `filter.notPaths` / `notNames` for
