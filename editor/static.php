@@ -143,10 +143,10 @@ header('Content-Length: ' . filesize($filepath));
 header('Cache-Control: public, max-age=604800'); // Cache for 1 week.
 header('X-Frame-Options: SAMEORIGIN');
 
-// No 'Service-Worker-Allowed' header is emitted for preview-sw.js: the embedded
-// editor never registers a service worker (editor/index.php shims
-// navigator.serviceWorker.register to a no-op for preview-sw.js), so widening the
-// SW control scope to '/' was both unused and unnecessarily broad. See
-// docs/EMBEDDED_EDITOR.md ("Service worker") for the rationale.
+// No 'Service-Worker-Allowed' header is emitted for preview-sw.js: the editor
+// registers it from static.php/{cmid}/preview-sw.js with the scope
+// static.php/{cmid}/viewer/, which already lies under the script's own path (the
+// default maximum scope). Widening it would only let one activity's worker claim
+// pages outside its editor. See docs/EMBEDDED_EDITOR.md ("Service worker").
 
 readfile($filepath);
