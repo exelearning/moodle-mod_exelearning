@@ -193,25 +193,6 @@ jobs:
       - name: Configure Behat timeout
         run: moodle-plugin-ci add-config -- '$CFG->behat_increasetimeout = 3;'
 
-      # TEMPORARY diagnostic: request the RequireJS bundle on a cold cache the way
-      # the first Behat step does, and show whether the response is decodable.
-      - name: Diagnose RequireJS bundle (temporary)
-        continue-on-error: true
-        run: |
-          root=moodle; [ -d moodle/public ] && root=moodle/public
-          php -S localhost:8000 -t "$root" > /tmp/phpserver.log 2>&1 &
-          sleep 3
-          php -i | grep -E '^(output_buffering|zlib.output_compression) '
-          # Each fresh revision is a new cache key, so every request rebuilds the bundle.
-          rev=$(date +%s)
-          set +e
-          curl -s -D /tmp/h -o /tmp/b --compressed "http://localhost:8000/lib/requirejs.php/$rev/core/first.js"
-          echo "curl --compressed exit: $? (61 = bad content encoding)"
-          cat /tmp/h
-          curl -s -o /tmp/raw -H 'Accept-Encoding: gzip' "http://localhost:8000/lib/requirejs.php/$((rev - 1))/core/first.js"
-          head -c 160 /tmp/raw | xxd | head -10
-          kill %1
-
       - name: PHP Lint
         if: ${{ always() }}
         run: moodle-plugin-ci phplint
