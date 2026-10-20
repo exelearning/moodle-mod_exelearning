@@ -10,6 +10,7 @@ User-visible changes per release. Each version matches a [GitHub release](https:
 
 ### Fixed
 
+- Pages with JavaScript no longer hang when Moodle rebuilds its JavaScript cache on servers with output buffering on (the common php.ini default). The editor bridge script was shipped as an AMD module without being one, which corrupted the bundle Moodle sends to every page
 - Deleting a student attempt asks for confirmation, so a stray click or a link prefetch can no longer discard grades
 - Uploading a style package no longer reports internal server details when it fails
 - The help text for "Graded activity" no longer claims that turning it off stops attempt tracking, which it never did

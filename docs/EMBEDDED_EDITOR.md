@@ -67,8 +67,11 @@ The editor bootstrap page is `editor/index.php`. Access requires
 active editor `index.html` (resolver), injects a `<base>` tag pointing at
 `editor/static.php/<cmid>` and a Moodle config script, swallows 404s on
 missing `.css`/`idevices` resources, and appends the bridge script
-`amd/src/moodle_exe_bridge.js` (`editor/index.php:98-337`). The response sets
-`X-Frame-Options: SAMEORIGIN` (`:344`).
+`js/moodle_exe_bridge.js` (`editor/index.php:98-337`). The response sets
+`X-Frame-Options: SAMEORIGIN` (`:344`). The bridge is a plain script for the
+editor iframe, not an AMD module, so it must stay out of `amd/`: Moodle bundles
+every `amd/build` file into the RequireJS bundle of every page, and a file without
+`define()` corrupts that bundle (`tests/amd_modules_test.php` guards this).
 
 The client-side overlay is `amd/src/editor_modal.js`. A delegated click on a
 `[data-action="mod_exelearning/editor-open"]` button (`:722-739`) opens a
@@ -128,7 +131,7 @@ The host never sends `OPEN_FILE`: the editor loads the current package itself
 from `initialProjectUrl` in `__EXE_EMBEDDING_CONFIG__` (`editor/index.php`).
 
 `DOCUMENT_LOADED` and `DOCUMENT_CHANGED` come from the injected
-`amd/src/moodle_exe_bridge.js`, which also forwards Ctrl/Cmd+S inside the editor
+`js/moodle_exe_bridge.js`, which also forwards Ctrl/Cmd+S inside the editor
 as an `exeweb-editor` `request-save` message; that is the only message of the
 `exeweb-editor` dialect the host still acts on (its `editor-ready` is ignored).
 

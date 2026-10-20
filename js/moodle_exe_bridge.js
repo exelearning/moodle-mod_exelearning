@@ -16,7 +16,10 @@
 /**
  * Lightweight bridge between embedded eXeLearning editor and Moodle modal.
  *
- * @module      mod_exelearning/moodle_exe_bridge
+ * A plain script that editor/index.php injects into the editor iframe, where there
+ * is no RequireJS. It must not live in amd/: Moodle bundles every amd/build file
+ * into the RequireJS bundle of every page, and a file without define() corrupts it.
+ *
  * @copyright   2025 eXeLearning
  * @license     http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */

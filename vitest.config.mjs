@@ -18,6 +18,9 @@ export default defineConfig({
             reporter: ['text', 'lcovonly', 'cobertura'],
             reportsDirectory: './coverage',
             include: ['js/**'],
+            // The editor bridge lives in js/ only because it is not an AMD module; it stays
+            // out of unit scope (DEC-74-01: postMessage glue to editor internals, e2e territory).
+            exclude: ['js/moodle_exe_bridge.js'],
         },
     },
 });
