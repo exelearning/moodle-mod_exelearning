@@ -20,6 +20,15 @@ Feature: View a mod_exelearning activity and its attempts report
       | activity    | name           | course | idnumber |
       | exelearning | Evaluable unit | C1     | exe1     |
 
+  # Any @javascript page loads Moodle's combined RequireJS bundle, which includes
+  # every amd/build file of this plugin. A non-AMD file there used to corrupt that
+  # bundle, so the first step of every JavaScript scenario hung on core/first.
+  @javascript
+  Scenario: Course pages load their JavaScript with the plugin installed
+    Given I log in as "teacher1"
+    When I am on "Course 1" course homepage
+    Then I should see "Evaluable unit"
+
   # These scenarios only assert server-rendered text, so they intentionally run
   # WITHOUT @javascript: the activity view embeds the eXeLearning package in an
   # iframe plus a SCORM shim that issues XHRs, which under the JS driver leaves

@@ -31,7 +31,8 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        # Moodle 5.3 requires PostgreSQL 17 and MariaDB 11.4; older rows keep their versions.
+        image: postgres:${{ matrix.postgres-version || '16' }}
         env:
           POSTGRES_USER: 'postgres'
           POSTGRES_HOST_AUTH_METHOD: 'trust'
@@ -44,7 +45,7 @@ jobs:
           --health-retries=3
 
       mariadb:
-        image: mariadb:10.11
+        image: mariadb:${{ matrix.mariadb-version || '10.11' }}
         env:
           MYSQL_USER: 'root'
           MYSQL_ALLOW_EMPTY_PASSWORD: "true"
@@ -138,6 +139,28 @@ jobs:
           - moodle-branch: 'MOODLE_502_STABLE'
             php: '8.4'
             database: 'mariadb'
+          # Moodle 5.3 (MOODLE_503_STABLE) -> PHP 8.3, 8.4
+          # Moodle 5.3 raises the minimums to PostgreSQL 17 and MariaDB 11.4.
+          - moodle-branch: 'MOODLE_503_STABLE'
+            php: '8.3'
+            database: 'pgsql'
+            postgres-version: '17'
+            mariadb-version: '11.4'
+          - moodle-branch: 'MOODLE_503_STABLE'
+            php: '8.3'
+            database: 'mariadb'
+            postgres-version: '17'
+            mariadb-version: '11.4'
+          - moodle-branch: 'MOODLE_503_STABLE'
+            php: '8.4'
+            database: 'pgsql'
+            postgres-version: '17'
+            mariadb-version: '11.4'
+          - moodle-branch: 'MOODLE_503_STABLE'
+            php: '8.4'
+            database: 'mariadb'
+            postgres-version: '17'
+            mariadb-version: '11.4'
 
     steps:
       - name: Check out repository code
@@ -169,6 +192,25 @@ jobs:
 
       - name: Configure Behat timeout
         run: moodle-plugin-ci add-config -- '$CFG->behat_increasetimeout = 3;'
+
+      # TEMPORARY diagnostic: request the RequireJS bundle on a cold cache the way
+      # the first Behat step does, and show whether the response is decodable.
+      - name: Diagnose RequireJS bundle (temporary)
+        continue-on-error: true
+        run: |
+          root=moodle; [ -d moodle/public ] && root=moodle/public
+          php -S localhost:8000 -t "$root" > /tmp/phpserver.log 2>&1 &
+          sleep 3
+          php -i | grep -E '^(output_buffering|zlib.output_compression) '
+          # Each fresh revision is a new cache key, so every request rebuilds the bundle.
+          rev=$(date +%s)
+          set +e
+          curl -s -D /tmp/h -o /tmp/b --compressed "http://localhost:8000/lib/requirejs.php/$rev/core/first.js"
+          echo "curl --compressed exit: $? (61 = bad content encoding)"
+          cat /tmp/h
+          curl -s -o /tmp/raw -H 'Accept-Encoding: gzip' "http://localhost:8000/lib/requirejs.php/$((rev - 1))/core/first.js"
+          head -c 160 /tmp/raw | xxd | head -10
+          kill %1
 
       - name: PHP Lint
         if: ${{ always() }}
