@@ -349,6 +349,9 @@ jobs:
           bash scripts/check-version-selftest.sh
           bash scripts/check-version.sh
 
+      - name: Validate untrusted editor assets
+        run: python3 scripts/check-editor-assets.py
+
       - name: Validate release packaging
         run: bash scripts/check-package.sh
 

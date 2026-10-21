@@ -33,6 +33,15 @@ jobs:
             exit 0
           fi
           echo "Latest editor release: $LATEST"
+
+          # The tag name is set by whoever publishes releases in another
+          # repository, and the next step hands it to sed, git, gh and a PR body.
+          # Only a plain version tag is accepted; anything else stops the run here,
+          # before the value is stored anywhere.
+          if ! printf '%s' "$LATEST" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$'; then
+            echo "Refusing to prepare a release from an unexpected editor tag name" >&2
+            exit 1
+          fi
           echo "tag=$LATEST" >> "$GITHUB_OUTPUT"
 
           CURRENT=""
@@ -53,10 +62,12 @@ jobs:
         if: steps.check.outputs.found == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Bound as an environment variable, never interpolated into the script:
+          # a `${{ }}` expansion is pasted into the shell source before it runs.
+          TAG: ${{ steps.check.outputs.tag }}
         run: |
           set -euo pipefail
 
-          TAG="${{ steps.check.outputs.tag }}"
           RELEASE="${TAG#v}"
           BRANCH="release/editor-${TAG}"
 

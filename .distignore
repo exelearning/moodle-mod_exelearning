@@ -45,4 +45,5 @@ DEVELOPMENT.md
 
 # Build artifacts (coverage/ is gitignored but git ls-files -o would still pick it up)
 mod_exelearning-*.zip
+mod_exelearning-*.zip.sha256
 coverage
