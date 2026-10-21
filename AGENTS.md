@@ -79,6 +79,9 @@ tags, never SHA pins; checkout `v7`, create-pull-request `v8`, and update-agent-
 [DEVELOPMENT](DEVELOPMENT.md) documents commands; Makefile and CI resolve discrepancies.
 `make test ARGS=mod/exelearning/tests/track_test.php`, `make test-js`, `make check-version`.
 Do not point PHPUnit at the entire plugin directory: its `vendor/` can cause collisions.
+Before enabling a deployed bundled editor, run
+`bash scripts/check-editor-http.sh <Moodle URL>`; installation, upgrade and server
+changes must pass this gate (see README).
 
 For architecture decisions, read [research/AGENTS.md](research/AGENTS.md) and the
 [decision guide](research/decisiones/README.md). IDs use the issue/PR number, not a global

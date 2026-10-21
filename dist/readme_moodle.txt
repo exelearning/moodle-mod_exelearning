@@ -48,7 +48,9 @@ Modifications made in Moodle
 None. dist/static/ is copied verbatim from the upstream build output. The plugin
 adds no patches: everything Moodle-specific lives in the plugin's own code
 (editor/index.php bootstraps the editor in an iframe, editor/static.php serves
-the assets, editor/save.php receives the saved package).
+the assets, editor/save.php receives the saved package). The sibling
+dist/.htaccess is the plugin's, not upstream's: it denies direct web access to
+the bundle on Apache, since static.php is the only intended route to it.
 
 
 How to update

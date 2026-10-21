@@ -176,6 +176,43 @@ not offered and the editor endpoints answer 404. A leftover
 `moodledata/mod_exelearning/embedded_editor/` directory from older plugin
 versions is obsolete and ignored; it can be deleted manually at any time.
 
+The bundle is served only through `editor/static.php` (login and
+`moodle/course:manageactivities`), and that router never serves the editor's
+own entry page: `index.html` runs inlined by `editor/index.php` and nowhere
+else. Opened as a plain page, the entry page boots a standalone editor that
+fetches and opens any package named in its `?url=` query, on the Moodle
+origin, for whoever follows the link. **Installation requirement: direct web
+access to `dist/` must be denied.** The shipped `dist/.htaccess` does this on Apache where
+`.htaccess` files are honoured (`AllowOverride`); nginx needs the equivalent
+in the server block, for example
+`location ^~ /mod/exelearning/dist/ { deny all; }` (prefix the path with
+Moodle's own directory when it is not at the web root).
+
+After every installation, upgrade or web-server configuration change, run this
+required deployment check. The script lives in the source repository (the
+release ZIP does not ship `scripts/`), so run it from a checkout of the matching
+tag:
+
+```bash
+bash scripts/check-editor-http.sh https://your-moodle.example/moodle
+```
+
+Without a checkout, the same check by hand: both commands must print `403` or
+`404` (a `200` means the bundle is exposed, a `3xx` or `5xx` is not a pass):
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://your-moodle.example/moodle/mod/exelearning/dist/static/index.html
+curl -s -o /dev/null -w '%{http_code}\n' https://your-moodle.example/moodle/mod/exelearning/dist/static/app/app.js
+```
+
+The command must pass before enabling the editor. It checks a public plugin
+asset first, then requires HTTP 403/404 for direct entry-page and asset URLs;
+redirects and server errors fail. Run it against each public hostname and
+origin serving Moodle. Confirm the authenticated editor still opens and saves.
+The local Docker stack includes the nginx rule automatically. This check is a
+deployment gate: the release ZIP cannot configure an external nginx server.
+
+
 ## Gradebook behaviour
 
 When a teacher uploads a `.elpx`, the plugin extracts the package and detects

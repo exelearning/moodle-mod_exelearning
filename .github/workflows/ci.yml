@@ -341,6 +341,9 @@ jobs:
       - name: Check out repository code
         uses: actions/checkout@v7
 
+      - name: Validate editor deployment check
+        run: python3 scripts/check-editor-http-selftest.py
+
       - name: Validate release workflow editor pinning
         run: bash scripts/check-release-workflow.sh
 

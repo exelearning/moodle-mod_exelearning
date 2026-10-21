@@ -19,6 +19,7 @@ User-visible changes per release. Each version matches a [GitHub release](https:
 - Work a learner does while "Graded activity" is off is no longer turned into a mark if the setting is switched back on later. It stays in the attempts report and still counts for completion, as before. This applies to work recorded from this version onwards; attempts already in the database are left as gradable, since there is no way to tell after the fact which of them were recorded while the switch was off
 - Backing up and restoring a course no longer turns work done while "Graded activity" was off into gradable work
 - Work done while "Graded activity" was off no longer uses up the learner's allowed attempts, so turning grading on later still leaves them attempts to be graded on
+- The bundled editor's entry page is no longer served outside the activity editor, and direct web access to the bundle is denied on Apache (`dist/.htaccess`, with a required nginx equivalent and an executable HTTP deployment check in the README). The local Docker stack blocks direct access automatically. Opened as a plain page it accepted a `?url=` parameter that fetched and opened any package named in the link
 
 ### Removed
 

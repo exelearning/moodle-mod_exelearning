@@ -177,6 +177,17 @@ mariadb10.11):
       bumps `$plugin->version` to the next valid development value
       (`make check-version` passes).
 
+## Deployment security gate
+
+- [ ] On every target Apache/nginx deployment with a bundled editor, run
+      `bash scripts/check-editor-http.sh <Moodle URL>` against each public
+      hostname/origin after installation or upgrade and after server changes.
+      Direct `dist/` entry-page and asset requests must return 403/404; redirects,
+      network errors and 5xx responses fail the check. Apache must honour
+      `dist/.htaccess`; nginx must include the equivalent location rule.
+- [ ] Confirm an authorized teacher can still open and save the embedded editor.
+      Never mark the deployment ready from packaging/CI checks alone.
+
 ## 11. Exit criteria — conditions that must hold for a STABLE release
 
 `version.php:33` is `MATURITY_STABLE`; the gate was first satisfied at DEC-77-01

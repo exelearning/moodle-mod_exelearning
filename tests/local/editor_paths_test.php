@@ -76,4 +76,27 @@ final class editor_paths_test extends advanced_testcase {
         $this->assertFalse(editor_paths::is_within('/etc/passwd', $root));
         $this->assertFalse(editor_paths::is_within('', $root));
     }
+
+    /**
+     * The bundle's own entry page is recognised whatever its letter case, and only
+     * at the top level: a nested index.html is an ordinary asset.
+     */
+    public function test_entry_page_is_recognised(): void {
+        $root = '/var/www/static';
+        $this->assertTrue(editor_paths::is_entry_page($root . '/index.html', $root));
+        $this->assertTrue(editor_paths::is_entry_page($root . '/INDEX.HTML', $root));
+    }
+
+    /**
+     * Everything the router must keep serving is not the entry page.
+     */
+    public function test_other_assets_are_not_the_entry_page(): void {
+        $root = '/var/www/static';
+        $this->assertFalse(editor_paths::is_entry_page($root . '/app/index.html', $root));
+        $this->assertFalse(editor_paths::is_entry_page($root . '/viewer/index.html', $root));
+        $this->assertFalse(editor_paths::is_entry_page($root . '/index.js', $root));
+        $this->assertFalse(editor_paths::is_entry_page($root . '/index.html.map', $root));
+        $this->assertFalse(editor_paths::is_entry_page($root . '/preview-sw.js', $root));
+        $this->assertFalse(editor_paths::is_entry_page('/var/www/other/index.html', $root));
+    }
 }

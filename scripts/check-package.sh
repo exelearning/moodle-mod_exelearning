@@ -145,6 +145,14 @@ grep -q "<version>$expected_version</version>" "$PKG/thirdpartylibs.xml" \
 grep -q "<license>AGPL-3.0-or-later</license>" "$PKG/thirdpartylibs.xml" \
     || report "packaged thirdpartylibs.xml must declare the editor licence AGPL-3.0-or-later"
 
+# 5c) Direct web access to the bundle is denied on Apache: editor/static.php is
+#     the only intended route to it. The file lives in dist/, not dist/static/,
+#     because the build wipes dist/static/ on every rebuild.
+[ -f "$PKG/dist/.htaccess" ] \
+    || report "the release ZIP must ship dist/.htaccess"
+grep -q "Require all denied" "$PKG/dist/.htaccess" \
+    || report "dist/.htaccess must deny all access to the bundled editor"
+
 # 6) The packager works on a temporary index and must never touch the tree:
 #    the stamped version.php and the stripped language files exist only inside
 #    the ZIP.

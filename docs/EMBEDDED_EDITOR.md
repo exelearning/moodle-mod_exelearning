@@ -49,6 +49,23 @@ removed installer era is obsolete and ignored; upgrading cleans the installer's
 config keys (`db/upgrade.php`, stage 2026072400) but deliberately leaves the
 directory for the administrator to delete.
 
+**Only the router serves the bundle, and never its entry page.** The editor
+loads its assets through `editor/static.php/<cmid>/...` (login + capability);
+the entry page `index.html` is inlined by `editor/index.php` and is refused by
+the router (`editor_paths::is_entry_page()`), because served on its own it
+boots a standalone editor whose `?url=` handling fetches and opens whatever
+package a link names, on the Moodle origin, for the teacher who follows it.
+The same page is reachable with no capability at all when the web server
+serves `mod/exelearning/dist/static/` directly, so the shipped `dist/.htaccess`
+denies the directory on Apache and the README gives the nginx equivalent;
+`scripts/check-package.sh` asserts the file ships. Blocking direct access is a
+mandatory installation requirement, verified after installation, upgrade and
+web-server changes with `bash scripts/check-editor-http.sh <Moodle URL>` (see
+README). The check rejects exposed entry pages/assets, redirects and server
+errors. `scripts/nginx-exelearning.conf` is included by the local Docker stack;
+production administrators must install the equivalent in their own server block.
+A passing check does not replace testing the authenticated open/save flow.
+
 **Site-wide toggle (DEC-108-01).** Embedded editing can be switched off with the
 `exelearning/editordisabled` admin setting (a deliberately negative checkbox,
 unticked by default, so the unset config and the unticked box both mean

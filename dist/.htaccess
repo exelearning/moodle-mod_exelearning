@@ -1,0 +1,13 @@
+# The bundled eXeLearning editor under dist/static/ is served only through
+# editor/static.php (login + moodle/course:manageactivities); nothing in the
+# plugin links to this directory directly. Opened as a plain page, the bundle's
+# index.html boots a standalone editor that fetches and opens any package named
+# in its ?url= query, on the Moodle origin, for whoever follows the link. Deny
+# direct web access. nginx ignores this file: add the equivalent to the server
+# block (see README.md, "The embedded editor is a release artifact").
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Deny from all
+</IfModule>
