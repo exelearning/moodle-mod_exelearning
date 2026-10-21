@@ -112,6 +112,53 @@ describe('parseSuspend', () => {
     });
 });
 
+describe('createScormApi transport (bridge mode)', () => {
+    function cfg(transport) {
+        // No-op timers so the only send() is the explicit LMSCommit (no stray autocommit).
+        return { transport, awaitInteraction: false, bindUnload: false, getScoringDocument: () => document, setTimeout: () => 0, clearTimeout: () => {} };
+    }
+
+    it('clears dirty when the transport accepts the payload (no XHR)', () => {
+        let calls = 0;
+        const { api } = createScormApi(cfg(() => { calls++; return true; }));
+        api.LMSSetValue('cmi.core.score.raw', '50');
+        expect(api.LMSCommit()).toBe('true');
+        expect(calls).toBe(1);
+        // Not dirty anymore: a second commit sends nothing.
+        expect(api.LMSCommit()).toBe('true');
+        expect(calls).toBe(1);
+    });
+
+    it('keeps dirty (Commit -> "false") when the transport rejects', () => {
+        const { api } = createScormApi(cfg(() => false));
+        api.LMSSetValue('cmi.core.score.raw', '50');
+        expect(api.LMSCommit()).toBe('false');
+    });
+
+    it('reports error 101 when the transport throws', () => {
+        const { api } = createScormApi(cfg(() => { throw new Error('boom'); }));
+        api.LMSSetValue('cmi.core.score.raw', '50');
+        expect(api.LMSCommit()).toBe('false');
+        expect(api.LMSGetLastError()).toBe('101');
+    });
+});
+
+describe('createScormApi transport with interaction gating', () => {
+    it('forwards the answered iDevices to the transport', () => {
+        document.body.innerHTML = '<div class="idevice_node" id="ide-tf"><button id="check">Check</button></div>';
+        const sent = [];
+        const tracker = createScormApi({ transport: (data) => { sent.push(data); return true; },
+            bindUnload: false, getScoringDocument: () => document, setTimeout: () => 0, clearTimeout: () => {} });
+        tracker.api.LMSInitialize('');
+        tracker.noteInteraction(document.getElementById('check'));
+        tracker.api.LMSSetValue('cmi.suspend_data', '1. "Verdadero o falso"; Puntuación: 0%; Peso: 100%');
+        tracker.api.LMSSetValue('cmi.core.score.raw', '0');
+        expect(tracker.api.LMSCommit()).toBe('true');
+        expect(sent).toHaveLength(1);
+        expect(sent[0].answered).toEqual(['ide-tf']);
+    });
+});
+
 describe('parseSuspend (versioned exe12 payload, core PR #2209)', () => {
     // Captured verbatim from a package built by the new SCORM 1.2 runtime.
     const REAL = 'exe12/1|ide-a;7;0;4;100;25;0;100';

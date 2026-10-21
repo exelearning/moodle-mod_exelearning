@@ -145,7 +145,7 @@ $parsedwwwroot = parse_url($CFG->wwwroot);
 $wwwrootorigin = $parsedwwwroot['scheme'] . '://' . $parsedwwwroot['host']
     . (!empty($parsedwwwroot['port']) ? ':' . $parsedwwwroot['port'] : '');
 
-$embeddingconfig = json_encode([
+$embeddingconfigdata = [
     'basePath' => $editorbaseurl,
     'parentOrigin' => $wwwrootorigin,
     'trustedOrigins' => [$wwwrootorigin],
@@ -157,7 +157,34 @@ $embeddingconfig = json_encode([
     ],
     'platform' => 'moodle',
     'pluginVersion' => get_config('mod_exelearning', 'version'),
-]);
+];
+
+// Opaque preview activation. The editor POSTs the whole project as one ZIP to
+// the authenticated management URL (sesskey + cmid in the query) and renders the
+// capability URL it gets back, served authless by preview.php under a sandbox CSP.
+//
+// Omitted under the php-wasm Playground: a service worker cannot serve a
+// genuinely opaque iframe, so the editor must FAIL CLOSED there (a clear preview
+// error) rather than silently downgrade the isolation boundary. Enabling preview
+// in the Playground is a blueprint-only, dev-only opt-in to previewTransport
+// 'static-service-worker' (which the core preview panel renders with a visible
+// warning) — never an admin setting.
+if (!(defined('MOODLE_PLAYGROUND') && MOODLE_PLAYGROUND)) {
+    $previewquery = ['cmid' => (string) $cm->id, 'sesskey' => sesskey()];
+    $embeddingconfigdata['previewSnapshot'] = [
+        'managementUrl' => (new moodle_url('/mod/exelearning/editor/preview_session.php', $previewquery))->out(false),
+        'servingBaseUrl' => (new moodle_url('/mod/exelearning/preview.php'))->out(false),
+        // The client's default delete target appends /{previewId} to managementUrl,
+        // and the URL constructor drops the query string when it does — taking cmid
+        // and sesskey with it. An explicit template keeps them.
+        'deleteUrlTemplate' => (new moodle_url(
+            '/mod/exelearning/editor/preview_session.php',
+            $previewquery + ['previewId' => '{previewId}']
+        ))->out(false),
+    ];
+}
+
+$embeddingconfig = json_encode($embeddingconfigdata);
 
 // Approved style registry consumed by the editor's themeRegistryOverride
 // hook (see exelearning/exelearning#1722). Filters built-ins, appends
