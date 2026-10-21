@@ -308,6 +308,10 @@ class track {
                     'rawgrade' => $finaloverall,
                     'feedback' => null,
                 ];
+                // No 'hidden' here: core applies every item detail that differs to the
+                // existing column, so hidden=0 on a learner commit silently reverted a
+                // teacher's "hide" / "hide until" in the gradebook. Visibility is a
+                // teacher decision, including during sync and regrading.
                 $result = grade_update(
                     'mod/exelearning',
                     $exe->course,
@@ -318,7 +322,6 @@ class track {
                     $grade,
                     $itemdetailsbase + [
                         'itemname' => clean_param($exe->name, PARAM_NOTAGS),
-                        'hidden'   => 0,
                     ]
                 );
             }

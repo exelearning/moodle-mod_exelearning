@@ -1358,6 +1358,61 @@ final class track_test extends advanced_testcase {
     }
 
     /**
+     * A learner commit must not un-hide the overall column the teacher hid.
+     *
+     * ingest() used to pass hidden=0 in the OVERALL item details, and core applies
+     * any differing detail to the existing column, so every student submission
+     * silently reverted a gradebook "hide" / "hide until". The grade still lands,
+     * but under the item the teacher configured.
+     *
+     * @dataProvider hidden_values_provider
+     * @param int $hidden The grade_item.hidden value a teacher sets: 1 (hidden) or a
+     *                    future timestamp (hidden until).
+     */
+    public function test_ingest_overall_mode_keeps_a_teacher_hidden_column_hidden(int $hidden): void {
+        [$instance, $student] = $this->create_activity_with_student(['grademodel' => EXELEARNING_GRADEMODEL_OVERALL]);
+        [$course, $cm] = $this->course_and_cm($instance);
+        $obj1 = $this->objectid_for($instance, 1);
+
+        $itemparams = [
+            'courseid'     => $course->id,
+            'itemtype'     => 'mod',
+            'itemmodule'   => 'exelearning',
+            'iteminstance' => $instance->id,
+            'itemnumber'   => 0,
+        ];
+        $item = \grade_item::fetch($itemparams);
+        $this->assertNotFalse($item, 'OVERALL mode creates the overall column on add_instance');
+        $item->set_hidden($hidden, true);
+
+        $result = track::ingest($instance, $course, $cm, $student->id, [
+            'session'    => 'sessHidden',
+            'cmi'        => ['cmi.core.score.raw' => '70', 'cmi.core.score.max' => '100'],
+            'itemscores' => [$obj1 => ['scorepct' => 70.0, 'weighted' => 100.0, 'title' => 'a']],
+        ], false);
+
+        $this->assertTrue($result['ok']);
+        $item = \grade_item::fetch($itemparams);
+        $this->assertSame($hidden, (int) $item->hidden);
+        $grade = \grade_grade::fetch(['itemid' => $item->id, 'userid' => $student->id]);
+        $this->assertNotFalse($grade, 'the grade is still published under the hidden column');
+        $this->assertEqualsWithDelta(70.0, (float) $grade->finalgrade, 0.0001);
+        $this->assertTrue($grade->is_hidden());
+    }
+
+    /**
+     * The two ways a teacher hides a column: outright, or until a release date.
+     *
+     * @return array<string, array{0: int}>
+     */
+    public static function hidden_values_provider(): array {
+        return [
+            'hidden'       => [1],
+            'hidden until' => [time() + DAYSECS],
+        ];
+    }
+
+    /**
      * With no objectid map, ingest() falls back to the legacy suspend_data path.
      */
     public function test_ingest_legacy_suspend_data_path(): void {

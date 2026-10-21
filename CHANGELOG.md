@@ -10,6 +10,7 @@ User-visible changes per release. Each version matches a [GitHub release](https:
 
 ### Fixed
 
+- Saving or synchronizing an activity and a learner submitting a score no longer make a hidden overall grade column visible again. With the overall grade model, hiding the column in the gradebook (or hiding it until a date) was silently undone by the next student submission or activity synchronization
 - Pages with JavaScript no longer hang when Moodle rebuilds its JavaScript cache on servers with output buffering on (the common php.ini default). The editor bridge script was shipped as an AMD module without being one, which corrupted the bundle Moodle sends to every page
 - Deleting a student attempt asks for confirmation, so a stray click or a link prefetch can no longer discard grades
 - Uploading a style package no longer reports internal server details when it fails

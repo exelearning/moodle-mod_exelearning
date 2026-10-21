@@ -123,6 +123,24 @@ final class grademodel_test extends advanced_testcase {
     }
 
     /**
+     * Saving or re-syncing an overall activity preserves teacher visibility settings.
+     */
+    public function test_overall_sync_preserves_visibility(): void {
+        $instance = $this->create_activity(['grademodel' => EXELEARNING_GRADEMODEL_OVERALL]);
+        foreach ([0, 1, time() + DAYSECS] as $hidden) {
+            $overall = $this->fetch_item($instance, 0);
+            $overall->set_hidden($hidden);
+
+            exelearning_sync_grade_items($instance->id);
+            $this->assertSame($hidden, (int) $this->fetch_item($instance, 0)->hidden);
+
+            $data = $this->update_payload($instance, ['name' => 'Updated activity']);
+            $this->assertTrue(exelearning_update_instance($data));
+            $this->assertSame($hidden, (int) $this->fetch_item($instance, 0)->hidden);
+        }
+    }
+
+    /**
      * Switching PERITEM → OVERALL on update removes the per-iDevice columns and
      * creates the overall column.
      */

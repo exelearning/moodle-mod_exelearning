@@ -108,10 +108,8 @@ final class grade_sync {
         // passing the activity as a whole (DEC-0-10).
         if ($grademodel === EXELEARNING_GRADEMODEL_OVERALL) {
             // Overall only: the gradebook shows a single aggregated column (SCORM-style).
-            // Pass hidden=0 explicitly so switching PERITEM -> OVERALL un-hides the
-            // overall item; grade_update() leaves the flag untouched otherwise and the
-            // column would stay hidden from when it was the completion-only stub.
-            grade_item_manager::update_item($instance, null, ['hidden' => 0]);
+            // Model switches create a fresh column (DEC-25-01); existing visibility belongs to the teacher.
+            grade_item_manager::update_item($instance);
         } else {
             // Per iDevice (default): no overall column at all. Delete any overall left
             // over from a previous sync or from the legacy hidden-stub model (DEC-25-01).
