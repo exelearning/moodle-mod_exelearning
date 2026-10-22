@@ -105,7 +105,6 @@ final class grade_recalculator {
         $byuser = attempts::fetch_scaled_by_user_item($instance->id, $userids);
 
         foreach ($items as $itemnumber => $name) {
-            unset($base['hidden']);
             // PERITEM has no overall column (DEC-25-01): never (re)publish item 0 there,
             // which would recreate it. OVERALL has no per-iDevice columns.
             if ($itemnumber === 0 && $grademodel !== EXELEARNING_GRADEMODEL_OVERALL) {
