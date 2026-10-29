@@ -67,8 +67,8 @@ The editor bootstrap page is `editor/index.php`. Access requires
 active editor `index.html` (resolver), injects a `<base>` tag pointing at
 `editor/static.php/<cmid>` and a Moodle config script, swallows 404s on
 missing `.css`/`idevices` resources, and appends the bridge script
-`js/moodle_exe_bridge.js` (`editor/index.php:98-337`). The response sets
-`X-Frame-Options: SAMEORIGIN` (`:344`). The bridge is a plain script for the
+`js/moodle_exe_bridge.js` (`editor/index.php:98-364`). The response sets
+`X-Frame-Options: SAMEORIGIN` (`:371`). The bridge is a plain script for the
 editor iframe, not an AMD module, so it must stay out of `amd/`: Moodle bundles
 every `amd/build` file into the RequireJS bundle of every page, and a file without
 `define()` corrupts that bundle (`tests/amd_modules_test.php` guards this).
