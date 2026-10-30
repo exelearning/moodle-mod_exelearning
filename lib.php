@@ -168,7 +168,7 @@ function exelearning_add_instance($data, $mform = null) {
  * @return bool
  */
 function exelearning_update_instance($data, $mform = null) {
-    global $DB;
+    global $CFG, $DB;
 
     $lock = \mod_exelearning\local\package_manager::get_package_lock((int) $data->instance);
     if (!$lock) {
@@ -210,6 +210,17 @@ function exelearning_update_instance($data, $mform = null) {
                     (int) $storedpackage->get_itemid()
                 );
             }
+        }
+
+        // PERITEM has no overall column, so an itemnumber 0 item still present is the
+        // legacy hidden stub (for example from an old backup). Drop it so OVERALL starts
+        // from a fresh, visible column and sync() never inherits its hidden flag (DEC-25-01).
+        if (
+            (int) $oldrow->grademodel === EXELEARNING_GRADEMODEL_PERITEM
+            && (int) $data->grademodel === EXELEARNING_GRADEMODEL_OVERALL
+        ) {
+            require_once($CFG->libdir . '/gradelib.php');
+            grade_update('mod/exelearning', $data->course, 'mod', 'exelearning', $data->id, 0, null, ['deleted' => true]);
         }
 
         $delta = exelearning_sync_grade_items($data->id, $contextid);
