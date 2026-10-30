@@ -108,7 +108,7 @@ to complete the installation from the command line.
 ## Local development environment (Docker)
 
 A `docker-compose.yml` is provided to spin up a self-contained test environment
-based on `erseco/alpine-moodle:v5.0.7` + MariaDB:
+based on `erseco/alpine-moodle:v5.0.11` + MariaDB:
 
 ```bash
 cp .env.dist .env             # first time only
