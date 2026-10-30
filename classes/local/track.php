@@ -308,6 +308,7 @@ class track {
                     'rawgrade' => $finaloverall,
                     'feedback' => null,
                 ];
+                // No 'hidden': core applies any differing detail, and visibility is the teacher's.
                 $result = grade_update(
                     'mod/exelearning',
                     $exe->course,
@@ -318,7 +319,6 @@ class track {
                     $grade,
                     $itemdetailsbase + [
                         'itemname' => clean_param($exe->name, PARAM_NOTAGS),
-                        'hidden'   => 0,
                     ]
                 );
             }

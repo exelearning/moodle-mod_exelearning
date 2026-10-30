@@ -176,6 +176,30 @@ not offered and the editor endpoints answer 404. A leftover
 `moodledata/mod_exelearning/embedded_editor/` directory from older plugin
 versions is obsolete and ignored; it can be deleted manually at any time.
 
+The bundle is served only through `editor/static.php` (login and
+`moodle/course:manageactivities`), which never serves the editor's entry page:
+opened on its own, `index.html` fetches and opens any package named in its
+`?url=` query, on the Moodle origin. **Installation requirement: deny direct web
+access to `dist/`.** The shipped `dist/.htaccess` does this on Apache when
+`.htaccess` files are honoured (`AllowOverride`); nginx needs
+`location ^~ /mod/exelearning/dist/ { deny all; }` in the server block (prefix
+the path with Moodle's directory when it is not at the web root). The local
+Docker stack includes that rule; the release ZIP cannot configure your server.
+
+Check it after every installation, upgrade or web-server change, against each
+public hostname. The first request must print `200` (otherwise the URL is wrong
+and the rest proves nothing); the other two must print `403` or `404` (`200`
+means the bundle is exposed; a redirect or `5xx` is not a pass). From a source
+checkout, `bash scripts/check-editor-http.sh <Moodle URL>` runs the same three
+requests. Then confirm a teacher can still open and save in the editor.
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://your-moodle.example/moodle/mod/exelearning/pix/icon.svg
+curl -s -o /dev/null -w '%{http_code}\n' https://your-moodle.example/moodle/mod/exelearning/dist/static/index.html
+curl -s -o /dev/null -w '%{http_code}\n' https://your-moodle.example/moodle/mod/exelearning/dist/static/app/app.js
+```
+
+
 ## Gradebook behaviour
 
 When a teacher uploads a `.elpx`, the plugin extracts the package and detects

@@ -49,4 +49,29 @@ class editor_paths {
         return $path === $root
             || strpos($path, $root . DIRECTORY_SEPARATOR) === 0;
     }
+
+    /**
+     * Returns whether a resolved bundle path is the editor's own entry page.
+     *
+     * `editor/static.php` exists to serve the bundle's assets to the page that
+     * `editor/index.php` builds; the entry page itself is never requested through
+     * it (the bootstrap inlines index.html, and the app-shell service worker that
+     * would fetch it only registers in the standalone PWA). Served as a page under
+     * a teacher's session, index.html boots a second, un-bridged editor whose own
+     * `?url=` / `?import=` handling fetches and opens whatever package the link
+     * names: attacker-chosen content rendered on the Moodle origin for a teacher
+     * who merely follows a link. So the router refuses it.
+     *
+     * Both arguments are canonical paths from realpath(), as for is_within(). The
+     * file name is compared ignoring case because a case-insensitive filesystem
+     * resolves INDEX.HTML to the same file.
+     *
+     * @param string $path The resolved path to test.
+     * @param string $root The bundle root directory.
+     * @return bool True when $path is the bundle's top-level index.html.
+     */
+    public static function is_entry_page(string $path, string $root): bool {
+        return dirname($path) === $root
+            && strcasecmp(basename($path), 'index.html') === 0;
+    }
 }

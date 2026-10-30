@@ -177,6 +177,12 @@ mariadb10.11):
       bumps `$plugin->version` to the next valid development value
       (`make check-version` passes).
 
+## Deployment security gate
+
+- [ ] Each deployment passes the direct `dist/` access check in the README
+      ("The embedded editor is a release artifact"), and a teacher can still
+      open and save the embedded editor.
+
 ## 11. Exit criteria — conditions that must hold for a STABLE release
 
 `version.php:33` is `MATURITY_STABLE`; the gate was first satisfied at DEC-77-01

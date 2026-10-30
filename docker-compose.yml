@@ -56,6 +56,7 @@ services:
     volumes:
       - moodledata:/var/www/moodledata
       - moodlehtml:/var/www/html
+      - ./scripts/nginx-exelearning.conf:/etc/nginx/server-conf.d/exelearning.conf:ro
       - ./:/var/www/html/mod/exelearning:rw  # Mount local plugin on the container
     depends_on:
       - db

@@ -49,6 +49,14 @@ removed installer era is obsolete and ignored; upgrading cleans the installer's
 config keys (`db/upgrade.php`, stage 2026072400) but deliberately leaves the
 directory for the administrator to delete.
 
+**Only the router serves the bundle, and never its entry page.** Assets load
+through `editor/static.php/<cmid>/...` (login + capability). The entry page
+`index.html` is inlined by `editor/index.php` and refused by the router
+(`editor_paths::is_entry_page()`): served on its own it opens whatever package a
+`?url=` link names. Direct web access to `dist/` must be denied by the server
+(`dist/.htaccess` on Apache, a location rule on nginx); the README has the rule
+and the required post-installation check.
+
 **Site-wide toggle (DEC-108-01).** Embedded editing can be switched off with the
 `exelearning/editordisabled` admin setting (a deliberately negative checkbox,
 unticked by default, so the unset config and the unticked box both mean

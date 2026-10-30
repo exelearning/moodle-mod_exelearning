@@ -1,0 +1,9 @@
+# Direct web access to the bundled editor is denied: editor/static.php is the
+# only route to it, and its index.html opened on its own fetches any package a
+# ?url= link names. nginx ignores this file; see README.md for its rule.
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Deny from all
+</IfModule>

@@ -123,6 +123,24 @@ final class grademodel_test extends advanced_testcase {
     }
 
     /**
+     * Saving or re-syncing an overall activity preserves teacher visibility settings.
+     */
+    public function test_overall_sync_preserves_visibility(): void {
+        $instance = $this->create_activity(['grademodel' => EXELEARNING_GRADEMODEL_OVERALL]);
+        foreach ([0, 1, time() + DAYSECS] as $hidden) {
+            $overall = $this->fetch_item($instance, 0);
+            $overall->set_hidden($hidden);
+
+            exelearning_sync_grade_items($instance->id);
+            $this->assertSame($hidden, (int) $this->fetch_item($instance, 0)->hidden);
+
+            $data = $this->update_payload($instance, ['name' => 'Updated activity']);
+            $this->assertTrue(exelearning_update_instance($data));
+            $this->assertSame($hidden, (int) $this->fetch_item($instance, 0)->hidden);
+        }
+    }
+
+    /**
      * Switching PERITEM → OVERALL on update removes the per-iDevice columns and
      * creates the overall column.
      */
@@ -143,6 +161,27 @@ final class grademodel_test extends advanced_testcase {
         $this->assertFalse((bool) $overall->hidden);
         $this->assertFalse($this->fetch_item($instance, 1));
         $this->assertFalse($this->fetch_item($instance, 2));
+    }
+
+    /**
+     * A legacy hidden overall stub left in a PERITEM activity (e.g. restored from an
+     * old backup) does not keep the OVERALL column hidden after the switch (DEC-25-01).
+     */
+    public function test_switch_peritem_to_overall_drops_legacy_hidden_stub(): void {
+        $instance = $this->create_activity(['grademodel' => EXELEARNING_GRADEMODEL_PERITEM]);
+        grade_update('mod/exelearning', $instance->course, 'mod', 'exelearning', $instance->id, 0, null, [
+            'itemname' => $instance->name,
+            'gradetype' => GRADE_TYPE_VALUE,
+            'hidden' => 1,
+        ]);
+        $this->assertTrue((bool) $this->fetch_item($instance, 0)->hidden);
+
+        $data = $this->update_payload($instance, ['grademodel' => EXELEARNING_GRADEMODEL_OVERALL]);
+        $this->assertTrue(exelearning_update_instance($data));
+
+        $overall = $this->fetch_item($instance, 0);
+        $this->assertInstanceOf(grade_item::class, $overall);
+        $this->assertFalse((bool) $overall->hidden);
     }
 
     /**

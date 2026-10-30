@@ -19,7 +19,7 @@ The two models are now **symmetric**: OVERALL shows only the aggregated column, 
 per-iDevice columns. There is **no hidden overall stub** in PER-ITEM anymore — a hidden item still showed (greyed)
 to teachers with `moodle/grade:viewhidden` and was reported as a confusing "extra grade", so DEC-25-01 removed it.
 `exelearning_sync_grade_items()` (delegador en `lib.php` → `\mod_exelearning\grades\grade_sync::sync()`,
-DEC-71-01) enforces this: OVERALL un-hides/creates the overall item, PER-ITEM deletes any stray overall
+DEC-71-01) enforces this: OVERALL creates or updates the overall item while preserving teacher visibility, PER-ITEM deletes any stray overall
 left over from a previous sync or the legacy hidden-stub model. `exelearning_grade_item_update()`
 (→ `\mod_exelearning\grades\grade_item_manager::update_item()`) carries the same guard so core's
 unconditional regrade calls cannot resurrect a phantom overall column (B2b, DEC-34-01).

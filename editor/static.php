@@ -138,6 +138,13 @@ if (!is_file($filepath)) {
     die('File not found');
 }
 
+// The entry page only ever runs inlined by editor/index.php; served on its own it
+// would open any package a `?url=` link names (see editor_paths::is_entry_page()).
+if (editor_paths::is_entry_page($filepath, $staticroot)) {
+    send_header_404();
+    die('File not found');
+}
+
 header('Content-Type: ' . $contenttype);
 header('Content-Length: ' . filesize($filepath));
 header('Cache-Control: public, max-age=604800'); // Cache for 1 week.
