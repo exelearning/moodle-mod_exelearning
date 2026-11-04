@@ -42,7 +42,8 @@ latest Moodle 5.x stable.
 | 4.5.x (LTS)           | Supported (minimum required version)      |
 | 5.0.x                 | Supported · default reference image       |
 | 5.1.x                 | Supported                                 |
-| 5.2.x (latest stable) | Supported · covered by CI                 |
+| 5.2.x                 | Supported · covered by CI                 |
+| 5.3.x (LTS)           | Supported · latest stable · covered by CI |
 
 Older Moodle releases (3.x, 4.0–4.4) are **not** supported because the plugin
 relies on the multi-grade-item API (`get_grade_item_names` and the
