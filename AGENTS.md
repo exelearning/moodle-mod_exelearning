@@ -23,6 +23,14 @@ supported version to follow an external example.
 - Preserve the native sidebar, preview/grading separation and activity permissions.
   The same-origin sandbox has accepted risks and real bridge dependencies; consult
   [TRACKING](docs/TRACKING.md) before changing iframe permissions.
+- A package is untrusted author HTML/JS. With the `contentdomain` setting it is served
+  by `content.php` from a per-activity origin on another domain
+  ([CONTENT_DOMAIN](docs/CONTENT_DOMAIN.md)): the endpoint answers only on a content
+  host whose label matches the activity, never reads or sets a cookie, and takes the
+  user from a plugin token checked with the current capability. Never serve the
+  `content` area from the Moodle origin while the setting is set (no fallback), and
+  keep the relay's `event.source` and `event.origin` checks. With the setting empty
+  behaviour must not change.
 - Only ODE 2.0 v4; no legacy `.elp` or `iteexe_online`. Do not vendor external
   repositories into plugin code. Authorized skills under `.agents/` are development
   tooling excluded from the ZIP, not production dependencies.

@@ -400,6 +400,12 @@
      *   - cmid, trackurl, session: identity and endpoint.
      *   - getScoringDocument(): returns the iframe content document (default: reads
      *     #exelearningobject) for objectid resolution.
+     *   - transport(data, sync): optional sink that REPLACES the direct XHR. On a
+     *     content domain the tracker runs in the player page of the content origin
+     *     (js/content_player.js), which has no Moodle session: it hands {cmi,
+     *     itemscores, answered} to the Moodle page, and that page makes the
+     *     authenticated request. Returning false keeps the buffer dirty for a retry.
+     *   - commitDelay: quiet time in ms before an autocommit (default: 500).
      *   - xhrFactory(): returns an XMLHttpRequest-like object (default: real XHR).
      *   - setTimeout / clearTimeout: timer functions (default: globals).
      *   - bindUnload: wire a beforeunload synchronous flush (default: true in a browser).
@@ -420,6 +426,8 @@
         var setTimeoutFn = config.setTimeout || (typeof setTimeout !== 'undefined' ? setTimeout : null);
         var clearTimeoutFn = config.clearTimeout || (typeof clearTimeout !== 'undefined' ? clearTimeout : null);
         var xhrFactory = config.xhrFactory || function () { return new XMLHttpRequest(); };
+        var transport = config.transport || null;
+        var commitDelay = typeof config.commitDelay === 'number' ? config.commitDelay : 500;
         var getScoringDocument = config.getScoringDocument || function () {
             var fr = (typeof document !== 'undefined') && document.getElementById('exelearningobject');
             return fr && fr.contentDocument;
@@ -519,11 +527,22 @@
             // Before the attempt starts there is nothing to persist: report success and
             // keep the values buffered for the first real commit.
             if (!dirty || !started) { return true; }
-            var snapshot = JSON.stringify(cmi);
             // Without interaction gating there is no attribution to report: omitting
             // answered keeps the server recording every scored iDevice.
-            var payload = buildPayload(cmid, session, cmi, itemScores, sesskey,
-                awaitInteraction ? answeredIds() : undefined);
+            var answeredList = awaitInteraction ? answeredIds() : undefined;
+            if (transport) {
+                // The sink owns the request, its retries and the unload flush, so the
+                // buffer is clean once the data has been handed over.
+                try {
+                    if (transport({ cmi: cmi, itemscores: itemScores, answered: answeredList }, sync === true) === false) {
+                        return false;
+                    }
+                    dirty = false;
+                    return true;
+                } catch (e) { errCode = '101'; return false; }
+            }
+            var snapshot = JSON.stringify(cmi);
+            var payload = buildPayload(cmid, session, cmi, itemScores, sesskey, answeredList);
             try {
                 var xhr = xhrFactory();
                 // Synchronous in LMSFinish (student closes the tab); async otherwise.
@@ -552,10 +571,10 @@
             } catch (e) { errCode = '101'; return false; }
         }
 
-        // Autocommit: after 500 ms with no new SetValue, persist.
+        // Autocommit: after commitDelay (500 ms) with no new SetValue, persist.
         function schedule() {
             if (autoTimer && clearTimeoutFn) { clearTimeoutFn(autoTimer); }
-            if (setTimeoutFn) { autoTimer = setTimeoutFn(function () { send(false); }, 500); }
+            if (setTimeoutFn) { autoTimer = setTimeoutFn(function () { send(false); }, commitDelay); }
         }
 
         // On each suspend_data write, capture the just-scored iDevice by objectid while

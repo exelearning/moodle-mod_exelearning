@@ -572,7 +572,10 @@ function exelearning_pluginfile($course, $cm, $context, $filearea, $args, $force
         return null;
     }
 
-    if ($filearea !== 'content') {
+    // With a content domain the package is served by content.php on its own origin.
+    // Serving it here as well would let a link to this URL run the package in the
+    // Moodle origin, whoever the link authenticates as.
+    if ($filearea !== 'content' || \mod_exelearning\local\content_domain::configured()) {
         return false;
     }
 

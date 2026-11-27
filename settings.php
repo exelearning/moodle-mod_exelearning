@@ -78,6 +78,26 @@ if ($ADMIN->fulltree) {
         0
     ));
 
+    // Content domain (docs/CONTENT_DOMAIN.md): empty by default, which serves packages
+    // from this site as always. A subdomain of this site works with less isolation,
+    // so it gets a warning next to the value instead of being refused.
+    $settings->add(new admin_setting_heading(
+        'mod_exelearning/contentdomainheading',
+        get_string('contentdomainheading', 'mod_exelearning'),
+        ''
+    ));
+
+    $settings->add(new \mod_exelearning\admin\admin_setting_contentdomain(
+        'exelearning/contentdomain',
+        get_string('contentdomain', 'mod_exelearning'),
+        get_string('contentdomain_desc', 'mod_exelearning')
+            . (\mod_exelearning\local\content_domain::same_site()
+                ? html_writer::div(get_string('contentdomainsamesite', 'mod_exelearning'), 'alert alert-warning mt-2')
+                : ''),
+        '',
+        PARAM_RAW_TRIMMED
+    ));
+
     // Defined styles management (upload / enable / disable / lockdown).
     $settings->add(new admin_setting_heading(
         'mod_exelearning/stylesheading',
