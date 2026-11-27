@@ -209,9 +209,10 @@ the certificate and that the web server passes the host through.
 
 ## Limits
 
-- The token is part of the content URL, so the package can read it. It reveals the
-  numeric ids of the user and of the activity context, and lets its holder fetch the
-  files of that activity as that user until it expires.
+- The token is part of the content URL, so the package can read it and the web server
+  records it in the access log of the content hosts. It reveals the numeric ids of the
+  user and of the activity context, and lets its holder fetch the files of that
+  activity as that user until it expires. It gives no access to Moodle.
 - A failed save is retried by the Moodle page and sent again when the page is left;
   the package itself is told the data was saved as soon as it is handed over.
 - Access that exists only in the Moodle session does not reach the content host. A
