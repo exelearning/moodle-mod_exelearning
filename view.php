@@ -179,21 +179,38 @@ if (!$mainfile) {
     if ($lmsexportwarning !== null) {
         echo $OUTPUT->notification($lmsexportwarning, \core\output\notification::NOTIFY_WARNING);
     }
-    $iframeurl = moodle_url::make_pluginfile_url(
-        $context->id,
-        'mod_exelearning',
-        'content',
-        (int) $exelearning->revision,
-        '/',
-        'index.html'
-    );
+    // With a content domain (admin setting) the package is served from its own origin
+    // instead of Moodle's (docs/CONTENT_DOMAIN.md). Once one is set the Moodle origin
+    // never serves the package: a value that cannot be used shows an error.
+    $contentdomain = \mod_exelearning\local\content_domain::get();
+    if (!$contentdomain && \mod_exelearning\local\content_domain::configured()) {
+        echo $OUTPUT->notification(
+            get_string('contentdomainunreachable', 'mod_exelearning'),
+            \core\output\notification::NOTIFY_ERROR
+        );
+        echo $OUTPUT->footer();
+        die;
+    }
+    $iframeurl = $contentdomain
+        ? new moodle_url(
+            \mod_exelearning\local\content_domain::player_url($contentdomain, $context->id, (int) $USER->id)
+        )
+        : moodle_url::make_pluginfile_url(
+            $context->id,
+            'mod_exelearning',
+            'content',
+            (int) $exelearning->revision,
+            '/',
+            'index.html'
+        );
     // Make the in-package teacher-layer selector available via the package's own URL
     // parameter (eXeLearning core hides teacher content by default and exposes a
     // selector to show it with ?exe-teacher=1; see upstream exelearning#1772). This
     // replaces the former CSS injection that hid the selector (mod_exeweb parity): the
     // plugin no longer mutates the package. The per-activity teachermodevisible setting
     // alone controls it — when on, the selector is offered to every viewer; no role gate.
-    if (!empty($exelearning->teachermodevisible)) {
+    // On a content domain the player page adds the parameter itself (content_endpoint).
+    if (!$contentdomain && !empty($exelearning->teachermodevisible)) {
         $iframeurl->param('exe-teacher', '1');
     }
     // Deep-link from the gradebook (issue #13 #4, DEC-13-02): grade.php maps a
@@ -364,9 +381,33 @@ if (!$mainfile) {
         ),
         JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
     );
-    $trackerjs = file_get_contents(__DIR__ . '/js/scorm_tracker.js');
-    $bootjs = "\n(function () { window.API = window.exeScormTracker.createScormApi($scormcfg).api; })();";
-    echo html_writer::tag('script', $trackerjs . $bootjs);
+    if ($contentdomain) {
+        // The package cannot reach this page from its content origin, so the tracker
+        // runs there, in the player page, and posts what has to be saved. The relay
+        // accepts it only from that origin and that iframe, and makes the track.php
+        // request itself: the session key stays here. It also shows the error below
+        // when the content domain does not answer, instead of any fallback.
+        $relaycfg = json_encode(
+            [
+                'iframeid' => 'exelearningobject',
+                'noticeid' => 'exelearning-contentdomain-error',
+                'contentorigin' => \mod_exelearning\local\content_domain::origin($contentdomain, $context->id),
+            ],
+            JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+        );
+        $relayjs = file_get_contents(__DIR__ . '/js/content_relay.js');
+        $bootjs = "\nwindow.exeContentRelay.init(Object.assign($relaycfg, $scormcfg));";
+        echo html_writer::tag('script', $relayjs . $bootjs);
+        echo html_writer::div(
+            get_string('contentdomainunreachable', 'mod_exelearning'),
+            'alert alert-danger',
+            ['id' => 'exelearning-contentdomain-error', 'role' => 'alert', 'hidden' => 'hidden']
+        );
+    } else {
+        $trackerjs = file_get_contents(__DIR__ . '/js/scorm_tracker.js');
+        $bootjs = "\n(function () { window.API = window.exeScormTracker.createScormApi($scormcfg).api; })();";
+        echo html_writer::tag('script', $trackerjs . $bootjs);
+    }
 
     // Fullscreen control (issue #13 #6, DEC-13-03): a right-aligned button above the
     // player. The iframe already advertises allow="fullscreen"; amd/src/fullscreen.js
@@ -390,7 +431,8 @@ if (!$mainfile) {
 
     // Package iframe. Sandbox policy documented in AN-008:
     // allow-scripts: eXeLearning v4 uses jQuery + iDevice JS.
-    // allow-same-origin: relative paths to pluginfile.php/.../content/<rev>/.
+    // allow-same-origin: relative paths to pluginfile.php/.../content/<rev>/. On a
+    // content domain it keeps the package in its content origin, which is not Moodle's.
     // allow-popups: interactive-video, hidden-image, etc.
     // allow-forms: quick-questions, form, scrambled-list, etc.
     // allow-popups-to-escape-sandbox: popups load without restrictions.

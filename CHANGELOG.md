@@ -4,6 +4,10 @@ User-visible changes per release. Each version matches a [GitHub release](https:
 
 ## Unreleased
 
+### Added
+
+- Optional content domain: an administrator can have each activity served from its own origin on a separate domain, so the JavaScript of a package cannot use the Moodle session of the person viewing it. Grades are recorded as before. It needs a wildcard DNS record, a wildcard certificate and a web server rule ([guide](https://github.com/exelearning/moodle-mod_exelearning/blob/main/docs/CONTENT_DOMAIN.md)); with the setting empty nothing changes
+
 ### Changed
 
 - Spanish strings are now the reviewed human translations instead of machine-translated placeholders

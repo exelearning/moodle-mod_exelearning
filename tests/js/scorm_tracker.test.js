@@ -978,3 +978,70 @@ describe('createScormApi: the payload names the iDevices the learner answered', 
         expect(Object.keys(lastBody(xhr).itemscores).sort()).toEqual(['ide-guess', 'ide-p2', 'ide-tf']);
     });
 });
+
+describe('createScormApi: transport (content domain)', () => {
+    const SCORED = '1. "Quiz"; score: 80%; weighted: 100%';
+    let scheduled;
+    let delay;
+    function config(transport) {
+        scheduled = null;
+        delay = null;
+        return {
+            bindUnload: false,
+            awaitInteraction: false,
+            getScoringDocument: () => document,
+            xhrFactory: () => { throw new Error('the tracker must not make the request itself'); },
+            setTimeout: (fn, ms) => { scheduled = fn; delay = ms; return 1; },
+            clearTimeout: () => { scheduled = null; },
+            transport,
+        };
+    }
+    beforeEach(() => {
+        document.body.innerHTML = '<div class="idevice_node" id="ide-q"></div>';
+    });
+
+    it('hands the buffered data to the sink instead of posting it', () => {
+        const transport = vi.fn(() => true);
+        const { api } = createScormApi(config(transport));
+        api.LMSSetValue('cmi.suspend_data', SCORED);
+        api.LMSSetValue('cmi.core.score.raw', '80');
+        scheduled();
+        expect(transport).toHaveBeenCalledTimes(1);
+        const [data, sync] = transport.mock.calls[0];
+        expect(sync).toBe(false);
+        expect(data.cmi['cmi.core.score.raw']).toBe('80');
+        expect(data.itemscores).toEqual({ 'ide-q': { scorepct: 80, weighted: 100, title: 'Quiz' } });
+        // Nothing new to hand over: a commit does not call the sink again.
+        expect(api.LMSCommit()).toBe('true');
+        expect(transport).toHaveBeenCalledTimes(1);
+    });
+
+    it('marks an explicit commit as synchronous', () => {
+        const transport = vi.fn(() => true);
+        const { api } = createScormApi(config(transport));
+        api.LMSSetValue('cmi.core.score.raw', '80');
+        expect(api.LMSCommit()).toBe('true');
+        expect(transport.mock.calls[0][1]).toBe(true);
+    });
+
+    it('keeps the data for a retry when the sink refuses or throws', () => {
+        let outcome = () => false;
+        const transport = vi.fn(() => outcome());
+        const { api } = createScormApi(config(transport));
+        api.LMSSetValue('cmi.core.score.raw', '80');
+        expect(api.LMSCommit()).toBe('false');
+        outcome = () => { throw new Error('no parent'); };
+        expect(api.LMSCommit()).toBe('false');
+        expect(api.LMSGetLastError()).toBe('101');
+        outcome = () => true;
+        expect(api.LMSCommit()).toBe('true');
+        expect(transport).toHaveBeenCalledTimes(3);
+    });
+
+    it('uses the configured autocommit delay, 500 ms by default', () => {
+        createScormApi({ ...config(() => true), commitDelay: 0 }).api.LMSSetValue('cmi.core.score.raw', '1');
+        expect(delay).toBe(0);
+        createScormApi(config(() => true)).api.LMSSetValue('cmi.core.score.raw', '1');
+        expect(delay).toBe(500);
+    });
+});
