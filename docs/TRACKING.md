@@ -55,6 +55,36 @@ re-shapes its typed params into the `{cmi, session, itemscores}` payload
 therefore **cannot diverge** on normalisation, objectid filtering, overall recompute,
 clamping or the attempt cap — those live in one unit-tested place.
 
+### With a content domain
+
+When an administrator sets a content domain ([CONTENT_DOMAIN.md](CONTENT_DOMAIN.md)),
+the first two boxes move to the activity's content origin and one hop is added. The
+server side is unchanged.
+
+```
+ eXeLearning iDevice JS (pipwerks SCORM 1.2)   [package frame, content origin]
+        │  LMSSetValue / LMSCommit / LMSFinish
+        ▼
+ window.API shim          js/scorm_tracker.js in the player page (content.php),
+        │                 the parent of the package frame on the same content origin:
+        │                 same buffering and objectid resolution as above
+        │  postMessage { cmi, itemscores, answered }, addressed to the Moodle origin
+        ▼
+ js/content_relay.js      inline in view.php (Moodle origin). Accepts a message only
+        │                 from the activity iframe (event.source) and from the
+        │                 activity's content origin (event.origin)
+        │  POST { id:<cmid>, sesskey, session, cmi, itemscores, answered }
+        ▼
+ track.php                (as above)
+```
+
+The player page exists so that the two same-origin dependencies of the bridge (the
+package looks for `API` in its parent, the tracker reads the package document) stay
+inside one origin, and the buffered state survives the package moving between its
+pages. The message carries the same untrusted data a same-origin package could write
+through `window.API`; identity (`cmid`, attempt token, session key) is added by the
+Moodle page and never crosses to the content origin.
+
 ## Preview vs grading (DEC-0-06)
 
 `?mode=preview` is honoured **only** when the caller holds
@@ -143,9 +173,9 @@ risk as core `mod_scorm` and any client-graded SCORM player; use a server-graded
 | 5 | Grade another user | Spoof a userid in the payload | The payload carries no userid; `ingest()` is always called with `$USER->id` (web `track.php:66`, WS `save_track.php:137`) | `track.php:66`; `classes/external/save_track.php:137` |
 | 6 | CSRF on the tracking endpoint | Cross-site POST to `track.php` | The session key is confirmed before any work. It is carried in the JSON body, not the query string, so access logs and proxies never record it (SEC-04) | `track.php:51`; `classes/local/tracking_endpoint.php` |
 | 7 | Unauthorised save | Unauthenticated / unprivileged POST | `require_login($course,…,$cm)` then `require_capability('mod/exelearning:savetrack')` (preview path needs `moodle/course:manageactivities`); WS adds `validate_context()` + same capability | `track.php:46,49-55`; `save_track.php:105-107` |
-| 8 | Malicious package navigates parent / spams modals | iDevice JS tries `top.location` / `alert()` | **Not enforceable.** The `sandbox` omits `allow-top-navigation` and `allow-modals`, but it also grants `allow-same-origin` next to `allow-scripts`, so package JS can reach `parent`/`top` (same origin, unsandboxed realm) and call `parent.alert()`, set `parent.location`, or rewrite the Moodle page. The omissions only stop the naive in-frame calls. Accepted residual risk; the real fix is a separate origin (RIE-001, see below) | `view.php:388-412`; rationale `research/analisis/notas/AN-008-iframe-vs-scorm-player.md:116-153` |
+| 8 | Malicious package navigates parent / spams modals | iDevice JS tries `top.location` / `alert()` | **Not enforceable.** The `sandbox` omits `allow-top-navigation` and `allow-modals`, but it also grants `allow-same-origin` next to `allow-scripts`, so package JS can reach `parent`/`top` (same origin, unsandboxed realm) and call `parent.alert()`, set `parent.location`, or rewrite the Moodle page. The omissions only stop the naive in-frame calls. Accepted residual risk without a content domain. **With a content domain** the package runs in another origin: it cannot reach `parent`/`top`, and the omitted `allow-top-navigation` and `allow-modals` are enforced ([CONTENT_DOMAIN.md](CONTENT_DOMAIN.md)) | `view.php:388-412`; rationale `research/analisis/notas/AN-008-iframe-vs-scorm-player.md:116-153` |
 | 9 | Status-only commit recorded as a real 0 | Mobile sends a status update with no score | `scoreraw` is nullable; omitting it skips `cmi.core.score.raw`, so `ingest()` no-ops instead of persisting a 0-score attempt (DEC-34-01 / B6) | `save_track.php:60-66,121-129`; no-op guard `classes/local/track.php:79-82` |
-| 10 | Package HTML opened top-level, outside the iframe | Learner (or a link inside the package) opens a `content/` file URL directly | **None at serve time.** `exelearning_pluginfile()` serves the `content` area to anyone with `mod/exelearning:view` as a same-origin document with no sandbox and no CSP (SVG inline too), so the iframe sandbox does not apply. Package JS then runs with the viewer's full Moodle session. Today's only control is **who can upload**: `mod/exelearning:addinstance` and `moodle/course:manageactivities` carry `RISK_XSS`, the same trust model as `mod_scorm`/`mod_resource`. The real fix is serving `content/` from a separate origin (RIE-001 / DEC-0-16) | `lib.php:522-580`; `db/access.php:38-46` |
+| 10 | Package HTML opened top-level, outside the iframe | Learner (or a link inside the package) opens a `content/` file URL directly | **None at serve time.** `exelearning_pluginfile()` serves the `content` area to anyone with `mod/exelearning:view` as a same-origin document with no sandbox and no CSP (SVG inline too), so the iframe sandbox does not apply. Package JS then runs with the viewer's full Moodle session. Today's only control is **who can upload**: `mod/exelearning:addinstance` and `moodle/course:manageactivities` carry `RISK_XSS`, the same trust model as `mod_scorm`/`mod_resource`. **With a content domain** `exelearning_pluginfile()` refuses the `content` area, and `content.php` serves it on the activity's content origin with a `Content-Security-Policy: sandbox` header, without reading or setting the Moodle session ([CONTENT_DOMAIN.md](CONTENT_DOMAIN.md)) | `lib.php:522-580`; `db/access.php:38-46` |
 
 ### Residual risk
 
@@ -154,8 +184,10 @@ escapable. This is accepted **knowingly**: the SCORM bridge is 100% same-origin 
 parent reads `iframe.contentDocument` for the objectid map, the child walks
 `window.parent.API`), so removing `allow-same-origin` would break tracking. The same
 flag means the sandbox does not contain a hostile package (threat 8), and a `content/`
-file opened top-level has no sandbox at all (threat 10); until RIE-001 lands, the upload capability
-is the boundary. Cross-component XSS hardening
+file opened top-level has no sandbox at all (threat 10); without a content domain the upload
+capability is the boundary. A content domain ([CONTENT_DOMAIN.md](CONTENT_DOMAIN.md)) is the
+separate origin RIE-001 asks for: it is opt-in because it needs a second domain, a wildcard
+certificate and a web server rule, which the plugin cannot provide. Cross-component XSS hardening
 (dedicated origin / `Permissions-Policy` / CSP, dropping
 `allow-popups-to-escape-sandbox`) is roadmapped as **RIE-001** / **DEC-0-16** — see
 `research/analisis/notas/AN-008-iframe-vs-scorm-player.md:124-153`.
@@ -203,6 +235,7 @@ emit nothing. See `research/decisiones/adr/DEC-68-01-eventos-ciclo-de-vida-inten
 
 ## See also
 
+- `docs/CONTENT_DOMAIN.md` — serving packages from a separate origin (setup and limits).
 - `docs/scorm-shim-current-flow.md` — shim internals and the endpoint step list.
 - `docs/tracking-architecture.md` — the single-channel architecture (DEC-122-01).
 - `docs/ELPX_PACKAGE.md` — how gradable iDevices are detected from the package.

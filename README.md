@@ -155,6 +155,12 @@ editor remains):
   into a pure `.elpx` player — uploads and playback keep working, but the
   "Edit with eXeLearning" button is hidden and the editor endpoints refuse
   requests.
+* **Content isolation**: an optional *content domain*. When set, each activity
+  is served from its own origin on a second domain instead of from the Moodle
+  site, so package JavaScript cannot use the viewer's Moodle session. It needs a
+  wildcard DNS record, a wildcard certificate and a web server rule; see
+  [CONTENT_DOMAIN.md](https://github.com/exelearning/moodle-mod_exelearning/blob/main/docs/CONTENT_DOMAIN.md).
+  Empty by default.
 * **Styles**: upload eXeLearning style packages (`.zip`), list and
   enable/disable the uploaded and built-in styles, and optionally block users
   from importing styles bundled inside an `.elpx` — all on this page.
@@ -276,6 +282,7 @@ Developer/administrator reference docs live under [`docs/`](https://github.com/e
 | [EXTERNAL_SERVICES.md](https://github.com/exelearning/moodle-mod_exelearning/blob/main/docs/EXTERNAL_SERVICES.md) | Web-service contract (`classes/external` ↔ `db/services.php`). |
 | [GRADEBOOK.md](https://github.com/exelearning/moodle-mod_exelearning/blob/main/docs/GRADEBOOK.md) | Multi-item gradebook model (OVERALL vs PER-ITEM). |
 | [TRACKING.md](https://github.com/exelearning/moodle-mod_exelearning/blob/main/docs/TRACKING.md) | End-to-end tracking pipeline + security model. |
+| [CONTENT_DOMAIN.md](https://github.com/exelearning/moodle-mod_exelearning/blob/main/docs/CONTENT_DOMAIN.md) | Serving packages from a separate origin: setup, checks and limits. |
 | [ELPX_PACKAGE.md](https://github.com/exelearning/moodle-mod_exelearning/blob/main/docs/ELPX_PACKAGE.md) | `.elpx` parsing, iDevice detection and XML hardening. |
 | [EMBEDDED_EDITOR.md](https://github.com/exelearning/moodle-mod_exelearning/blob/main/docs/EMBEDDED_EDITOR.md) | Embedded editor source/lifecycle and `postMessage` bridge. |
 | [PRIVACY_BACKUP_FILES.md](https://github.com/exelearning/moodle-mod_exelearning/blob/main/docs/PRIVACY_BACKUP_FILES.md) | Privacy, backup/restore and File API. |
